@@ -14,6 +14,12 @@
       <h2>🗺️ 내 주변 혼밥 지도</h2>
       <p class="hint">고른 위치 반경 500m의 <b>실제 식당</b>을 혼밥 레벨별 색으로 보여 줘요. 혼밥에 성공하면 🍚 도장을 찍어 레벨업!</p>
       <p id="status"></p>
+       <form id="searchForm" class="search">
+        <input type="text" id="searchInput"
+          placeholder="동네, 역, 학교 이름으로 검색">
+        <button class="btn" type="submit">검색</button>
+      </form>
+      <div id="searchResults" class="results"></div>
       <div class="row">
         <button id="myLoc" class="btn ghost small">📡 내 위치</button>
         <span class="hint">또는 동네 선택 · 지도 클릭</span>
@@ -191,5 +197,6 @@
       renderList();
     }
   </script>
+  <script src="search.js"></script>
 </body>
 </html>
