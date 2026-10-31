@@ -12,21 +12,23 @@
   <main>
     <section class="hero">
       <h1>🐾 어슬렁</h1>
-      <p class="lead">골목 어슬렁거리는 걸 좋아하는 사람을 위한 <b>동네 취향 분석기</b></p>
+      <p class="lead">동네 어슬렁거리는 걸 좋아하는 사람을 위한 <b>동네 취향 분석기</b></p>
       <p class="sub">전국 상가 데이터로 동네의 성격을 읽고, 나에게 맞는 다음 동네를 찾아 드려요.</p>
     </section>
 
     <section class="card">
       <h2>📍 어느 동네를 볼까요?</h2>
-      <p class="hint">지도에서 아무 곳이나 콕 찍거나, 🐾 표시된 골목 동네를 눌러 보세요.</p>
+      <p class="hint">지도에서 아무 곳이나 콕 찍거나, 아이콘이 있는 비교 동네를 눌러 보세요.</p>
       <button id="myLoc" class="btn ghost">📡 내 위치에서 시작</button>
       <div id="map" class="map"></div>
     </section>
 
     <section class="card">
-      <h2>🗺️ 전국 골목 동네</h2>
+      <h2>🗺️ 전국 비교 동네 <small id="count" class="hint"></small></h2>
+      <p class="hint">골목·번화가·대학가·주택가·오피스·전통시장·신도시까지 다양한 동네와 비교해요.
+        누군가 새 동네를 분석하면 📍<b>사용자 발견</b> 동네로 자동 추가돼서, 쓸수록 비교 기준이 넓어져요.</p>
       <div id="chips" class="chips"></div>
-      <div id="presetList" class="grid"><div class="loading"><div class="spinner"></div><p>전국 골목 동네를 불러오는 중…</p></div></div>
+      <div id="presetList" class="grid"><div class="loading"><div class="spinner"></div><p>전국 비교 동네를 불러오는 중…</p></div></div>
     </section>
 
     <section class="card">
@@ -45,7 +47,6 @@
   <script>
     renderHeader('index.html');
     const map = makeMap('map', [36.4, 127.9], 7);
-    const paw = L.divIcon({ className: 'paw', html: '🐾', iconSize: [24, 24] });
     let presets = [];
 
     // 지도에서 아무 곳이나 클릭 → 그 자리 분석하기
@@ -68,30 +69,36 @@
 
     getPresets().then(list => {
       presets = list;
+      const users = list.filter(p => p.source === '사용자').length;
+      document.getElementById('count').textContent = `${list.length}곳 (사용자 발견 ${users}곳 포함)`;
+
       list.forEach(p => {
-        L.marker([p.lat, p.lon], { icon: paw }).addTo(map).bindPopup(
-          `<b>${esc(p.name)}</b><br>${esc(shortSido(p.sido))} ${esc(p.sigungu)}<br>` +
+        const icon = L.divIcon({ className: 'paw', html: TYPE_ICON[p.type] || '📍', iconSize: [24, 24] });
+        L.marker([p.lat, p.lon], { icon }).addTo(map).bindPopup(
+          `<b>${esc(p.name)}</b> <small>${esc(p.type)}</small><br>${esc(shortSido(p.sido))} ${esc(p.sigungu)}<br>` +
           `<a class="btn small" href="${link('dong.html', p.lat, p.lon, p.name)}">분석 보기 →</a>`);
       });
-      const regions = ['전체', ...new Set(list.map(p => shortSido(p.sido)))];
+
+      const types = ['전체', ...Object.keys(TYPE_ICON).filter(t => list.some(p => p.type === t))];
       const chips = document.getElementById('chips');
-      chips.innerHTML = regions.map((r, i) => `<button class="chip ${i ? '' : 'on'}" data-r="${r}">${r}</button>`).join('');
+      chips.innerHTML = types.map((t, i) =>
+        `<button class="chip ${i ? '' : 'on'}" data-t="${t}">${TYPE_ICON[t] || '🗺️'} ${t}</button>`).join('');
       chips.onclick = e => {
         const b = e.target.closest('.chip');
         if (!b) return;
         chips.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c === b));
-        renderList(b.dataset.r);
+        renderList(b.dataset.t);
       };
       renderList('전체');
     }).catch(showError);
 
-    function renderList(region) {
+    function renderList(type) {
       document.getElementById('presetList').innerHTML = presets
-        .filter(p => region === '전체' || shortSido(p.sido) === region)
+        .filter(p => type === '전체' || p.type === type)
         .map(p => {
           const m = mbti(p.f, presets);
           return `<a class="mini" href="${link('dong.html', p.lat, p.lon, p.name)}">
-            <b>${m.icon} ${esc(p.name)}</b><small>${esc(shortSido(p.sido))} ${esc(p.sigungu)}</small>
+            <b>${TYPE_ICON[p.type] || '📍'} ${esc(p.name)}</b><small>${esc(shortSido(p.sido))} ${esc(p.sigungu)} · ${esc(p.type)}</small>
             <span class="tag">${m.code}</span><span class="tag">만 ${dongAge(p.f, presets)}세</span></a>`;
         }).join('');
     }
