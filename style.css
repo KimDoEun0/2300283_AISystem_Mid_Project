@@ -464,7 +464,7 @@ footer {
 /* ---------- 핸드폰 화면 ---------- */
 @media (max-width: 760px) {
   main { padding: 12px 12px 110px; }
-  header#top { justify-content: center; height: 54px; }
+  header#top { justify-content: center; height: 54px; background: #fff; backdrop-filter: none; }
   /* 위쪽 메뉴 → 아래쪽 탭 바 */
   nav {
     position: fixed;
