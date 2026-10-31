@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>어슬렁 - 우리 지역의 연남동 찾기</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="top"></header>
+  <main>
+    <section class="hero">
+      <h1>🐾 어슬렁</h1>
+      <p class="lead">골목 어슬렁거리는 걸 좋아하는 사람을 위한 <b>동네 취향 분석기</b></p>
+      <p class="sub">전국 상가 데이터로 동네의 성격을 읽고, 나에게 맞는 다음 동네를 찾아 드려요.</p>
+    </section>
+
+    <section class="card">
+      <h2>📍 어느 동네를 볼까요?</h2>
+      <p class="hint">지도에서 아무 곳이나 콕 찍거나, 🐾 표시된 골목 동네를 눌러 보세요.</p>
+      <button id="myLoc" class="btn ghost">📡 내 위치에서 시작</button>
+      <div id="map" class="map"></div>
+    </section>
+
+    <section class="card">
+      <h2>🗺️ 전국 골목 동네</h2>
+      <div id="chips" class="chips"></div>
+      <div id="presetList" class="grid"><div class="loading"><div class="spinner"></div><p>전국 골목 동네를 불러오는 중…</p></div></div>
+    </section>
+
+    <section class="card">
+      <h2>✨ 어슬렁으로 할 수 있는 것</h2>
+      <div class="features">
+        <div><b>🧬 동네 MBTI · 동네 나이</b><p class="hint">가게 구성으로 동네의 성격과 나이를 계산해요.</p></div>
+        <div><b>🔍 우리 지역의 연남동 찾기</b><p class="hint">좋아하는 동네와 가장 닮은 동네를 전국에서 찾아요.</p></div>
+        <div><b>🪪 동네 주민등록증</b><p class="hint">분석 결과를 카드로 발급하고 QR로 공유해요.</p></div>
+      </div>
+    </section>
+  </main>
+  <footer>데이터: 소상공인시장진흥공단 상가(상권)정보 API (공공데이터포털)</footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="common.js"></script>
+  <script>
+    renderHeader('index.html');
+    const map = makeMap('map', [36.4, 127.9], 7);
+    const paw = L.divIcon({ className: 'paw', html: '🐾', iconSize: [24, 24] });
+    let presets = [];
+
+    // 지도에서 아무 곳이나 클릭 → 그 자리 분석하기
+    function openSpot(lat, lon) {
+      L.popup().setLatLng([lat, lon])
+        .setContent(`<b>이 자리 반경 300m</b><br><a class="btn small" href="${link('dong.html', lat, lon, '')}">🔍 이 동네 분석하기</a>`)
+        .openOn(map);
+    }
+    map.on('click', e => openSpot(e.latlng.lat, e.latlng.lng));
+
+    document.getElementById('myLoc').onclick = () => {
+      if (!navigator.geolocation) return alert('이 브라우저는 위치 기능을 지원하지 않아요.');
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          map.setView([pos.coords.latitude, pos.coords.longitude], 16);
+          openSpot(pos.coords.latitude, pos.coords.longitude);
+        },
+        () => alert('위치 권한을 허용해 주세요.'));
+    };
+
+    getPresets().then(list => {
+      presets = list;
+      list.forEach(p => {
+        L.marker([p.lat, p.lon], { icon: paw }).addTo(map).bindPopup(
+          `<b>${esc(p.name)}</b><br>${esc(shortSido(p.sido))} ${esc(p.sigungu)}<br>` +
+          `<a class="btn small" href="${link('dong.html', p.lat, p.lon, p.name)}">분석 보기 →</a>`);
+      });
+      const regions = ['전체', ...new Set(list.map(p => shortSido(p.sido)))];
+      const chips = document.getElementById('chips');
+      chips.innerHTML = regions.map((r, i) => `<button class="chip ${i ? '' : 'on'}" data-r="${r}">${r}</button>`).join('');
+      chips.onclick = e => {
+        const b = e.target.closest('.chip');
+        if (!b) return;
+        chips.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c === b));
+        renderList(b.dataset.r);
+      };
+      renderList('전체');
+    }).catch(showError);
+
+    function renderList(region) {
+      document.getElementById('presetList').innerHTML = presets
+        .filter(p => region === '전체' || shortSido(p.sido) === region)
+        .map(p => {
+          const m = mbti(p.f, presets);
+          return `<a class="mini" href="${link('dong.html', p.lat, p.lon, p.name)}">
+            <b>${m.icon} ${esc(p.name)}</b><small>${esc(shortSido(p.sido))} ${esc(p.sigungu)}</small>
+            <span class="tag">${m.code}</span><span class="tag">만 ${dongAge(p.f, presets)}세</span></a>`;
+        }).join('');
+    }
+  </script>
+</body>
+</html>
