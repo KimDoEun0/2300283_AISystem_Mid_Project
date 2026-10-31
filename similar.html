@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>닮은 동네 찾기 - 어슬렁</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="top"></header>
+  <main>
+    <section class="card">
+      <h2>🔍 우리 지역의 OO 찾기</h2>
+      <p class="hint">좋아하는 동네와 찾고 싶은 지역을 고르면, 가게 구성이 가장 닮은 동네를 찾아 드려요.</p>
+      <div class="row">
+        <label>좋아하는 동네<select id="base"></select></label>
+        <label>찾을 지역<select id="region"></select></label>
+        <label>동네 유형<select id="type"></select></label>
+      </div>
+    </section>
+    <section id="result"></section>
+  </main>
+  <footer>데이터: 소상공인시장진흥공단 상가(상권)정보 API (공공데이터포털)</footer>
+
+  <script src="common.js"></script>
+  <script>
+    renderHeader('similar.html');
+    const q = getParams();
+    const baseSel = document.getElementById('base');
+    const regionSel = document.getElementById('region');
+    const typeSel = document.getElementById('type');
+    const out = document.getElementById('result');
+    let presets, custom = null;
+    loading(out, '전국 비교 동네를 불러오는 중… 🐾');
+
+    (async () => {
+      try {
+        // 분석 페이지에서 넘어온 경우 그 동네를 기준으로
+        if (q.lat) {
+          const d = await api({ action: 'analyze', lat: q.lat, lon: q.lon, r: 300 });
+          custom = { name: q.name || d.dong, lat: q.lat, lon: q.lon, f: features(d) };
+        }
+        presets = await getPresets();
+
+        const yeonnam = presets.findIndex(p => p.name === '연남동');
+        baseSel.innerHTML = (custom ? `<option value="custom">📍 ${esc(custom.name)} (방금 본 동네)</option>` : '') +
+          presets.map((p, i) => `<option value="${i}" ${!custom && i === yeonnam ? 'selected' : ''}>${TYPE_ICON[p.type] || '📍'} ${esc(p.name)}</option>`).join('');
+
+        const regions = [...new Set(presets.map(p => shortSido(p.sido)))];
+        regionSel.innerHTML = `<option value="">전국</option>` + regions.map(r => `<option>${esc(r)}</option>`).join('');
+
+        const types = Object.keys(TYPE_ICON).filter(t => presets.some(p => p.type === t));
+        typeSel.innerHTML = `<option value="">모든 유형</option>` + types.map(t => `<option>${t}</option>`).join('');
+
+        baseSel.onchange = regionSel.onchange = typeSel.onchange = run;
+        run();
+      } catch (err) {
+        out.innerHTML = '';
+        showError(err);
+      }
+    })();
+
+    function run() {
+      const base = baseSel.value === 'custom' ? custom : presets[Number(baseSel.value)];
+      const region = regionSel.value, type = typeSel.value;
+      const list = similarList(base.f, presets, base)
+        .filter(x => (!region || shortSido(x.p.sido) === region) && (!type || x.p.type === type));
+      const where = region || '전국';
+
+      if (!list.length) {
+        out.innerHTML = `<div class="card">😅 이 조건에 맞는 비교 동네가 아직 없어요. 지역이나 유형을 바꿔 보세요.</div>`;
+        return;
+      }
+      const best = list[0];
+      out.innerHTML = `
+      <div class="card winner">
+        <p>${esc(where)}의 <b>${esc(base.name)}</b>${josa(base.name, '은', '는')}…</p>
+        <div class="big">${TYPE_ICON[best.p.type] || '📍'} ${esc(best.p.name)}</div>
+        <p>가게 구성이 <b>${best.score}%</b> 닮았어요! · ${esc(shortSido(best.p.sido))} ${esc(best.p.sigungu)} ${esc(best.p.dong)}</p>
+        <a class="btn green" href="${link('dong.html', best.p.lat, best.p.lon, best.p.name)}">이 동네 분석 보기 →</a>
+      </div>
+      <div class="card">
+        <h2>닮은 순위</h2>
+        ${list.slice(0, 8).map(simRow).join('')}
+        <details><summary>ⓘ 닮은 정도는 어떻게 계산하나요?</summary>
+          밥집·카페·술집·구경·생활 가게 비율, 프랜차이즈·노포·트렌디·혼밥·문화 업종 비율, 가게 밀도까지
+          <b>11가지 값</b>을 전국 비교 동네 평균 기준으로 표준화(z-점수)한 뒤,
+          두 동네 값의 방향이 얼마나 같은지(<b>코사인 유사도</b>)를 0~100%로 바꿨어요.
+        </details>
+      </div>`;
+    }
+  </script>
+</body>
+</html>
