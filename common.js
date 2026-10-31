@@ -1,13 +1,20 @@
 // ===== 어슬렁 공통 코드 =====
-// GAS 서버 주소 (8주차 수업처럼 GAS가 공공데이터 API를 대신 호출해 준다)
+// GAS 서버 주소 
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbwW6bGogaXbZxJc6ALclkTrn6sEWtDB9H_axxM4tKAJ-bw4qt86Lo6wXEFGX0wf_k1J/exec';
 
+// 가게 그룹 (분석·차트·지도 색)
 const GROUPS = {
   food: { label: '밥집', color: '#E07A5F', icon: '🍚' },
   cafe: { label: '카페·디저트', color: '#D4A017', icon: '☕' },
   bar:  { label: '술집', color: '#7B5EA7', icon: '🍺' },
   shop: { label: '구경 가게', color: '#3D9970', icon: '🛍️' },
   life: { label: '생활 가게', color: '#8D99AE', icon: '✂️' },
+};
+
+// 비교 동네 유형별 아이콘
+const TYPE_ICON = {
+  '골목': '🐾', '번화가': '🌃', '대학가': '🎓', '주택가': '🏡',
+  '오피스': '🏢', '전통시장': '🧺', '신도시': '🏙️', '사용자 발견': '📍',
 };
 
 // ---------- 서버 요청 ----------
@@ -18,9 +25,10 @@ async function api(params) {
   return json.data;
 }
 
-// 전국 골목 동네 목록 (한 번 받으면 브라우저 탭이 열려 있는 동안 기억)
-async function getPresets() {
+// 전국 비교 동네 목록 (한 번 받으면 브라우저 탭이 열려 있는 동안 기억)
+async function getPresets(fresh) {
   try {
+    if (fresh) sessionStorage.removeItem('presets');
     const saved = sessionStorage.getItem('presets');
     if (saved) return prep(JSON.parse(saved));
   } catch (e) {}
@@ -35,14 +43,14 @@ function getParams() {
   return { lat: Number(p.get('lat')), lon: Number(p.get('lon')), name: p.get('name') || '' };
 }
 function link(page, lat, lon, name) {
-  return `${page}?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}&name=${encodeURIComponent(name || '')}`;
+  return `${page}?lat=${Number(lat).toFixed(5)}&lon=${Number(lon).toFixed(5)}&name=${encodeURIComponent(name || '')}`;
 }
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 function shortSido(s) {
   const map = { '경상북도': '경북', '경상남도': '경남', '충청북도': '충북', '충청남도': '충남', '전라남도': '전남', '전남광주통합특별시': '광주·전남' };
-  return map[s] || s.replace(/특별자치도|특별자치시|특별시|광역시|도$/, '');
+  return map[s] || String(s).replace(/특별자치도|특별자치시|특별시|광역시|도$/, '');
 }
 function josa(word, a, b) {
   const code = word.charCodeAt(word.length - 1) - 0xAC00;
@@ -71,15 +79,15 @@ function ageLabel(a) {
 }
 function simRow({ p, score }) {
   return `<a class="sim" href="${link('dong.html', p.lat, p.lon, p.name)}">
-    <div><b>${esc(p.name)}</b><br><small>${esc(shortSido(p.sido))} ${esc(p.sigungu)}</small></div>
+    <div><b>${TYPE_ICON[p.type] || '📍'} ${esc(p.name)}</b><br><small>${esc(shortSido(p.sido))} ${esc(p.sigungu)} · ${esc(p.type || '')}</small></div>
     <div class="meter"><i style="width:${score}%"></i></div><div class="pct">${score}%</div></a>`;
 }
 
-// 지도 (Leaflet + CARTO 지도 타일)
+// 지도 (Leaflet + OpenStreetMap, API 키 필요 없음)
 function makeMap(id, center, zoom) {
   const map = L.map(id).setView(center, zoom);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap', maxZoom: 19,
+    attribution: '&copy; OpenStreetMap', maxZoom: 19,
   }).addTo(map);
   return map;
 }
@@ -99,7 +107,7 @@ function features(d) {
   };
 }
 
-// 전국 골목 동네들의 평균·표준편차 (상대 평가 기준)
+// 전국 비교 동네들의 평균·표준편차 (상대 평가 기준)
 function prep(presets) {
   presets.forEach(p => { p.f = features(p); });
   const s = {};
@@ -113,13 +121,13 @@ function prep(presets) {
   return presets;
 }
 
-// 전국 동네 중 몇 % 위치인지 (0~1)
+// 전국 비교 동네 중 몇 % 위치인지 (0~1)
 function percentile(presets, fn, v) {
   return presets.filter(p => fn(p.f) <= v).length / presets.length;
 }
 const toStars = p => Math.min(5, Math.max(1, Math.ceil(p * 5)));
 
-// 동네 MBTI: 4가지 축에서 전국 동네의 가운데보다 높으면 오른쪽 글자
+// 동네 MBTI: 4가지 축에서 전국 비교 동네의 가운데보다 높으면 오른쪽 글자
 const MBTI_BASE = {
   MD: { icon: '🍞', name: '브런치 산책' }, MN: { icon: '🍶', name: '맛집 포차' },
   SD: { icon: '🛍️', name: '소품 구경' }, SN: { icon: '🎸', name: '밤의 아지트' },
@@ -166,6 +174,7 @@ function distKm(lat1, lon1, lat2, lon2) {
     Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(rad(lon2 - lon1) / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(a));
 }
+// 자기 자신(500m 이내)은 빼고 닮은 순서로 정렬
 function similarList(f, presets, self) {
   return presets
     .filter(p => !self || distKm(p.lat, p.lon, self.lat, self.lon) > 0.5)
