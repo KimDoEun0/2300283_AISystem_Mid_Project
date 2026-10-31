@@ -78,8 +78,8 @@ function simRow({ p, score }) {
 // 지도 (Leaflet + CARTO 지도 타일)
 function makeMap(id, center, zoom) {
   const map = L.map(id).setView(center, zoom);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19,
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap', maxZoom: 19,
   }).addTo(map);
   return map;
 }
