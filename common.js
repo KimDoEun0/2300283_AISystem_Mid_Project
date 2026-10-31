@@ -1,208 +1,120 @@
-// ===== 어슬렁 공통 코드 =====
-// GAS 서버 주소 
+// ===== 혼밥 레벨 지도 공통 코드 =====
+// GAS 서버 주소
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbwW6bGogaXbZxJc6ALclkTrn6sEWtDB9H_axxM4tKAJ-bw4qt86Lo6wXEFGX0wf_k1J/exec';
 
-// 가게 그룹 (분석·차트·지도 색)
-const GROUPS = {
-  food: { label: '밥집', color: '#E07A5F', icon: '🍚' },
-  cafe: { label: '카페·디저트', color: '#D4A017', icon: '☕' },
-  bar:  { label: '술집', color: '#7B5EA7', icon: '🍺' },
-  shop: { label: '구경 가게', color: '#3D9970', icon: '🛍️' },
-  life: { label: '생활 가게', color: '#8D99AE', icon: '✂️' },
-};
+// 혼밥 레벨 9단계 + 업종 분류 규칙 (상가정보 API의 업종 중분류·소분류 이름으로 판단)
+const LEVELS = [
+  null,
+  { lv: 1, name: '편의점', icon: '🏪', color: '#43A047', title: '편의점 정복자', ex: '삼각김밥, 도시락',
+    q: '편의점에서 도시락이나 컵라면을 먹어 본 적 있다', re: /편의점/ },
+  { lv: 2, name: '카페·빵집'2', title: '카페 독서가', ex: '카페, 베이커리',
+    q: '카페나 빵집에서 혼자re:/카페|커피|빵|도넛|베이커리|제과|디저트|아이스크림|빙수|떡|한과|주스|비알코올/ },
+  { lv: 3, name: '패스트푸드33', title: '버거 솔로', ex:'햄버거, 피자, 토스트',
+    q: '햄버거·피자 가게에서/햄버거|버거|피자|치킨|샌드위치|토스트|핫도그/ },
+  { lv: 4, name: '분식집', i title: '분식집 단골', ex:'김밥, 떡볶이, 라면',
+    q: '분식집에서 혼자 김밥 ', re:/김밥|분식|만두|라면|떡볶이|순대|어묵/ },
+  { lv: 5, name: '국밥·백반'0', title: '국밥 장인', ex:'국밥, 백반, 찌개',
+    q: '국밥집이나 백반집에/국밥|백반|한정식|찌개|탕|국수|칼국수|냉면|죽|해장|한식|도시락|덮밥|비빔/ },
+  { lv: 6, name: '중국집', i title: '짜장면 독립군', ex:'짜장면, 짬뽕',
+    q: '중국집에서 혼자 짜장/중식|중국|짜장|짬뽕|마라|양꼬치/ },
+  { lv: 7, name: '일식·양식'0', title: '파스타 고독가',ex: '돈가스, 초밥, 파스타',
+    q: '파스타·초밥 같은 레 다', re:/일식|초밥|스시|돈가스|돈까스|라멘|우동|소바|양식|파스타|스테이크|서양|이탈리아|동남
+아|쌀국수|베트남|태국|인도|
+  { lv: 8, name: '고깃집·횟집', icon: '🥩', color: '#8E24AA', title: '고기 굽는
+고수', ex: '삼겹살, 곱창, 회
+    q: '고깃집에서 혼자 고기를 구워 본 적 있다', re:
+/고기|구이|갈비|삼겹|곱창|막 물|장어|오리|닭갈비/ },
+  { lv: 9, name: '혼술', icon: '🍺', color: '#3949AB', title: '혼술의 신', ex: '술집,
+이자카야',
+    q: '술집에서 혼자 술을 마셔 본 적 있다', re:
+/주점|호프|이자카야|포차|와
+];
+// 겹치는 단어가 있어서 검사 '는 카페(떡)보다 분식 먼저)
+const CHECK_ORDER = [1, 9, 7, 6, 3, 4, 2, 8, 5];
+function levelOf(mcls, scls)
+  const text = mcls + ' ' + scls;
+  for (const lv of CHECK_ORDext)) return lv;
+  return 0;  // 혼밥 레벨에 해당하지 않는 업종
+}
 
-// 비교 동네 유형별 아이콘
-const TYPE_ICON = {
-  '골목': '🐾', '번화가': '🌃', '대학가': '🎓', '주택가': '🏡',
-  '오피스': '🏢', '전통시장': '🧺', '신도시': '🏙️', '사용자 발견': '📍',
-};
+// 데모용 추천 동네
+const SPOTS = [
+  ['신촌', 37.5559, 126.9368276], ['홍대', 37.5540,126.9220],
+  ['성수', 37.5446, 127.0557243], ['부산 서면', 35.1565,129.0560],
+  ['대구 동성로', 35.8690, 1625, 127.3505],
+];
 
 // ---------- 서버 요청 ----------
 async function api(params) {
   const res = await fetch(GAS_URL + '?' + new URLSearchParams(params));
-  const json = await res.json();
+  const json = await res.jso
   if (!json.ok) throw new Error(json.error);
   return json.data;
 }
 
-// 전국 비교 동네 목록 (한 번 받으면 브라우저 탭이 열려 있는 동안 기억)
-async function getPresets(fresh) {
-  try {
-    if (fresh) sessionStorage.removeItem('presets');
-    const saved = sessionStorage.getItem('presets');
-    if (saved) return prep(JSON.parse(saved));
-  } catch (e) {}
-  const list = await api({ action: 'presets' });
-  try { sessionStorage.setItem('presets', JSON.stringify(list)); } catch (e) {}
-  return prep(list);
+// ---------- 내 기록 (브라우저에 저장) ----------
+const store = {
+  get(k, def) {
+    try { const v = localSto return v === null ? def :JSON.parse(v); }
+    catch (e) { return def;
+  },
+  set(k, v) {
+    try { localStorage.setItem('honbab_' + k, JSON.stringify(v)); } catch (e) {}
+  },
+};
+function myStamps() { return
+// 내 레벨 = 테스트 결과와 도장 찍은 최고 레벨 중 높은 것
+function myLevel() {
+  return Math.max(store.get('testLevel', 0), ...myStamps().map(s => s.lv), 0);
+}
+function nextLevel() { return Math.min(9, myLevel() + 1); }
+function titleOf(lv) { retur 밥 새싹'; }
+function levelBadge(lv) {
+  if (!lv) return `<span cland:#9E9E9E">Lv.0 🌱</span>`;
+  const info = LEVELS[lv];
+  return `<span class="lvbad.color}">Lv.${lv}${info.icon} ${info.name}</span>`;
 }
 
-// ---------- 주소·화면 도우미 ----------
-function getParams() {
-  const p = new URLSearchParams(location.search);
-  return { lat: Number(p.get('lat')), lon: Number(p.get('lon')), name: p.get('name') || '' };
-}
-function link(page, lat, lon, name) {
-  return `${page}?lat=${Number(lat).toFixed(5)}&lon=${Number(lon).toFixed(5)}&name=${encodeURIComponent(name || '')}`;
-}
+// ---------- 화면 도우미 --
 function esc(s) {
-  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  return String(s).replace(/p;', '<': '&lt;', '>':'&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
-function shortSido(s) {
-  const map = { '경상북도': '경북', '경상남도': '경남', '충청북도': '충북', '충청남도': '충남', '전라남도': '전남', '전남광주통합특별시': '광주·전남' };
-  return map[s] || String(s).replace(/특별자치도|특별자치시|특별시|광역시|도$/, '');
-}
-function josa(word, a, b) {
-  const code = word.charCodeAt(word.length - 1) - 0xAC00;
-  if (code < 0 || code > 11171) return a + '(' + b + ')';
-  return code % 28 ? a : b;
-}
-function starText(n) { return '★'.repeat(n) + '☆'.repeat(5 - n); }
 function loading(el, msg) {
-  el.innerHTML = `<div class="loading"><div class="spinner"></div><p>${msg}</p></div>`;
+  el.innerHTML = `<div classclass="spinner"></div><p>${msg}</p></div>`;
 }
 function showError(err) {
-  document.querySelector('main').insertAdjacentHTML('afterbegin',
-    `<div class="error">😢 ${esc(err.message)}<br><small>잠시 후 새로고침해 보세요.</small></div>`);
+  document.querySelector('maerbegin',
+    `<div class="error">😢 ${esc(err.message)}<br><small>잠시 후 새로고침해
+보세요.</small></div>`);
+}
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(
+  setTimeout(() => t.remove(), 2500);
 }
 function renderHeader(active) {
-  const items = [['index.html', '🏠 홈'], ['similar.html', '🔍 닮은 동네 찾기']];
-  document.getElementById('top').innerHTML = `<a class="logo" href="index.html">🐾 어슬렁</a><nav>${
-    items.map(([h, t]) => `<a href="${h}" class="${h === active ? 'on' : ''}">${t}</a>`).join('')}</nav>`;
-}
-function legend() {
-  return Object.values(GROUPS).map(x => `<span class="tag" style="background:${x.color};color:#fff">${x.icon} ${x.label}</span>`).join(' ');
-}
-function ageLabel(a) {
-  return a < 30 ? '👶 풋풋한 청춘 동네' : a < 40 ? '🧑 한창 뜨는 동네' : a < 50 ? '🧔 자리 잡은 어른 동네'
-    : a < 60 ? '👴 정 많은 중년 동네' : '🧓 세월이 쌓인 노포 동네';
-}
-function simRow({ p, score }) {
-  return `<a class="sim" href="${link('dong.html', p.lat, p.lon, p.name)}">
-    <div><b>${TYPE_ICON[p.type] || '📍'} ${esc(p.name)}</b><br><small>${esc(shortSido(p.sido))} ${esc(p.sigungu)} · ${esc(p.type || '')}</small></div>
-    <div class="meter"><i style="width:${score}%"></i></div><div class="pct">${score}%</div></a>`;
+  const items = [['index.htm'🧪 레벨 테스트'],['map.html', '🗺️ 혼밥 지도'], ['my.html', '📒 혼밥 일지']];
+  document.getElementById('tlogo" href="index.html">🍜혼밥 레벨 지도</a><nav>${
+    items.map(([h, t]) => `< active ? 'on' :''}">${t}</a>`).join('')}</nav>`;
 }
 
+// ---------- 지도·거리 ----
 // 지도 (Leaflet + OpenStreetMap, API 키 필요 없음)
-function makeMap(id, center, zoom) {
+function makeMap(id, center,
   const map = L.map(id).setView(center, zoom);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  L.tileLayer('https://tile.}.png', {
     attribution: '&copy; OpenStreetMap', maxZoom: 19,
   }).addTo(map);
   return map;
 }
-
-// ---------- 동네 분석 계산 ----------
-// 가게 수 → 비율(특징값)
-function features(d) {
-  const g = d.groups, t = d.tags;
-  const base = (g.food + g.cafe + g.bar + g.shop + g.life) || 1;
-  return {
-    food: g.food / base, cafe: g.cafe / base, bar: g.bar / base, shop: g.shop / base, life: g.life / base,
-    franchise: t.franchise / base, old: t.old / base, trendy: t.trendy / base,
-    solo: t.solo / base, culture: t.culture / base,
-    shopShare: g.shop / ((g.food + g.cafe + g.bar + g.shop) || 1),  // 먹는 가게 대비 구경 가게
-    nightShare: g.bar / ((g.cafe + g.bar) || 1),                    // 카페 대비 술집
-    density: d.total / (Math.PI * (d.r / 1000) ** 2),                // 1㎢당 가게 수
-  };
-}
-
-// 전국 비교 동네들의 평균·표준편차 (상대 평가 기준)
-function prep(presets) {
-  presets.forEach(p => { p.f = features(p); });
-  const s = {};
-  Object.keys(presets[0].f).forEach(k => {
-    const arr = presets.map(p => p.f[k]);
-    const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
-    const std = Math.sqrt(arr.reduce((a, b) => a + (b - mean) ** 2, 0) / arr.length) || 1;
-    s[k] = { mean, std };
-  });
-  presets.stats = s;
-  return presets;
-}
-
-// 전국 비교 동네 중 몇 % 위치인지 (0~1)
-function percentile(presets, fn, v) {
-  return presets.filter(p => fn(p.f) <= v).length / presets.length;
-}
-const toStars = p => Math.min(5, Math.max(1, Math.ceil(p * 5)));
-
-// 동네 MBTI: 4가지 축에서 전국 비교 동네의 가운데보다 높으면 오른쪽 글자
-const MBTI_BASE = {
-  MD: { icon: '🍞', name: '브런치 산책' }, MN: { icon: '🍶', name: '맛집 포차' },
-  SD: { icon: '🛍️', name: '소품 구경' }, SN: { icon: '🎸', name: '밤의 아지트' },
-};
-function mbti(f, presets) {
-  const pos = k => percentile(presets, x => x[k], f[k]);
-  const axes = [
-    { l: ['I', '개인 가게'], r: ['F', '프랜차이즈'], p: pos('franchise') },
-    { l: ['M', '먹으러 가는'], r: ['S', '구경하러 가는'], p: pos('shopShare') },
-    { l: ['D', '낮이 좋은'], r: ['N', '밤이 좋은'], p: pos('nightShare') },
-    { l: ['Q', '조용한'], r: ['L', '북적이는'], p: pos('density') },
-  ];
-  axes.forEach(a => { a.pick = a.p > 0.5 ? a.r : a.l; });
-  const code = axes.map(a => a.pick[0]).join('');
-  const base = MBTI_BASE[code[1] + code[2]];
-  return {
-    code, icon: base.icon, axes,
-    name: (code[3] === 'L' ? '북적이는 ' : '조용한 ') + base.name + (code[0] === 'I' ? ' 골목' : ' 거리'),
-    desc: axes.map(a => a.pick[1]).join(' · '),
-  };
-}
-
-// 동네 나이: 노포 업종 ↑ 나이 ↑, 트렌디 업종·프랜차이즈 ↑ 나이 ↓ → 전국 범위를 22~68세로 환산
-function ageScore(f) { return f.old * 3 - f.trendy - f.franchise * 0.5; }
-function dongAge(f, presets) {
-  const scores = presets.map(p => ageScore(p.f));
-  const min = Math.min(...scores), max = Math.max(...scores);
-  const t = (ageScore(f) - min) / ((max - min) || 1);
-  return Math.round(Math.min(79, Math.max(19, 22 + t * 46)));
-}
-
-// 닮은 정도: 11가지 값을 표준화(z-점수)한 뒤 코사인 유사도 → 0~100%
-const SIM_KEYS = ['food', 'cafe', 'bar', 'shop', 'life', 'franchise', 'old', 'trendy', 'solo', 'culture', 'density'];
-function similarity(f1, f2, s) {
-  const v1 = SIM_KEYS.map(k => (f1[k] - s[k].mean) / s[k].std);
-  const v2 = SIM_KEYS.map(k => (f2[k] - s[k].mean) / s[k].std);
-  const dot = v1.reduce((a, x, i) => a + x * v2[i], 0);
-  const n = (Math.hypot(...v1) * Math.hypot(...v2)) || 1;
-  return Math.round(((dot / n) + 1) / 2 * 100);
-}
-function distKm(lat1, lon1, lat2, lon2) {
+// 두 지점 사이 직선거리 (하버사인 공식, km)
+function distKm(lat1, lon1,
   const R = 6371, rad = x => x * Math.PI / 180;
-  const a = Math.sin(rad(lat2 - lat1) / 2) ** 2 +
+  const a = Math.sin(rad(lat
     Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(rad(lon2 - lon1) / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
+  return 2 * R * Math.asin(M
 }
-// 자기 자신(500m 이내)은 빼고 닮은 순서로 정렬
-function similarList(f, presets, self) {
-  return presets
-    .filter(p => !self || distKm(p.lat, p.lon, self.lat, self.lon) > 0.5)
-    .map(p => ({ p, score: similarity(f, p.f, presets.stats) }))
-    .sort((a, b) => b.score - a.score);
-}
-
-// 특기: 지도용 가게들 중 가장 많은 업종
-function specialty(d) {
-  const cnt = {};
-  (d.stores || []).forEach(s => { cnt[s[4]] = (cnt[s[4]] || 0) + 1; });
-  return Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0] || '-';
-}
-
-// 분석 결과를 한 번에 정리
-function report(d, presets, name) {
-  const f = features(d);
-  const pct = fn => percentile(presets, fn, fn(f));
-  return {
-    name: name || d.dong,
-    place: `${d.sido} ${d.sigungu} ${d.dong}`,
-    f,
-    mbti: mbti(f, presets),
-    age: dongAge(f, presets),
-    honol: toStars(pct(x => x.solo + x.culture + x.cafe)),
-    nopo: toStars(pct(x => x.old)),
-    indie: Math.round(Math.max(0, 1 - f.franchise) * 100),
-    similar: similarList(f, presets, d).slice(0, 3),
-    specialty: specialty(d),
-  };
-}
+// 걷는 속도 분당 약 67m 기
+const walkMin = m => Math.max(1, Math.round(m / 67));
