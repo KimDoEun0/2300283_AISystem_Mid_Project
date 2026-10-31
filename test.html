@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>혼밥 레벨 테스트 - 혼밥 레벨 지도</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="top"></header>
+  <main>
+    <section class="card">
+      <h2>🧪 혼밥 레벨 테스트</h2>
+      <p class="hint">혼자 가 본 곳에 "있다"를 눌러 주세요. 가장 높은 단계가 지금 내 레벨이에요.</p>
+      <div id="box"></div>
+    </section>
+  </main>
+  <footer>데이터: 소상공인시장진흥공단 상가(상권)정보 API (공공데이터포털)</footer>
+
+  <script src="common.js"></script>
+  <script>
+    renderHeader('test.html');
+    const box = document.getElementById('box');
+    const answers = [];
+    showQ(1);
+
+    function showQ(i) {
+      const info = LEVELS[i];
+      box.innerHTML = `
+        <div class="progress"><i style="width:${(i - 1) / 9 * 100}%"></i></div>
+        <div class="question">
+          <div class="hint">${i} / 9</div>
+          <div class="ic">${info.icon}</div>
+          <p>혼자 ${info.q}</p>
+          <div class="answer">
+            <button class="btn green" id="yes">⭕ 있다</button>
+            <button class="btn gray" id="no">❌ 없다</button>
+          </div>
+        </div>`;
+      document.getElementById('yes').onclick = () => answer(i, true);
+      document.getElementById('no').onclick = () => answer(i, false);
+    }
+
+    function answer(i, yes) {
+      answers[i] = yes;
+      if (i < 9) showQ(i + 1);
+      else finish();
+    }
+
+    async function finish() {
+      // "있다"라고 답한 가장 높은 단계 = 내 레벨
+      let lv = 0;
+      for (let i = 1; i <= 9; i++) if (answers[i]) lv = i;
+      store.set('testLevel', lv);
+      loading(box, '결과를 계산하는 중… 🍚');
+
+      // 결과를 스프레드시트에 저장하고, 전체 참여자 중 내 위치 계산
+      let rank = '';
+      try {
+        const s = await api({ action: 'test', level: lv });
+        const ge = s.counts.slice(lv).reduce((a, b) => a + b, 0);
+        rank = `참여자 ${s.total}명 중 <b>상위 ${Math.max(1, Math.round(ge / s.total * 100))}%</b>예요!`;
+      } catch (e) {}
+
+      const next = Math.min(9, lv + 1);
+      box.innerHTML = `
+        <div class="result">
+          <div class="ic">${lv ? LEVELS[lv].icon : '🌱'}</div>
+          <div class="hint">당신의 혼밥 레벨은</div>
+          <div class="lvbig">Lv.${lv}</div>
+          <h2>${titleOf(lv)}</h2>
+          <p>${lv ? `혼자 <b>${LEVELS[lv].name}</b>까지 가 봤군요!` : '아직 혼밥 경험이 없군요. 오늘이 첫걸음!'}<br>${rank}</p>
+          ${lv < 9 ? `
+            <p>다음 도전: ${levelBadge(next)}</p>
+            <div class="row center">
+              <a class="btn" href="map.html?lv=${next}">🗺️ 내 주변에서 Lv.${next} 도전하기</a>
+              <a class="btn ghost" href="my.html">📒 혼밥 일지</a>
+            </div>` : `
+            <p>🎉 이미 혼밥 최고 레벨이에요!</p>
+            <a class="btn" href="my.html">🎓 자격증 받으러 가기</a>`}
+          <p><a href="test.html">↻ 다시 하기</a></p>
+        </div>`;
+    }
+  </script>
+</body>
+</html>
