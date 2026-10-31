@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>혼밥 일지 - 혼밥 레벨 지도</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="top"></header>
+  <main>
+    <section class="card" id="status"></section>
+
+    <section class="card">
+      <h2>🍚 혼밥 도장판</h2>
+      <div id="board" class="board"></div>
+    </section>
+
+    <section class="card">
+      <h2>🎓 혼밥 자격증</h2>
+      <div class="row">
+        <input type="text" id="nick" placeholder="닉네임" maxlength="20">
+        <button id="issue" class="btn">🎓 자격증 발급</button>
+      </div>
+      <div id="certBox"></div>
+    </section>
+
+    <section class="card">
+      <h2>📝 혼밥 기록</h2>
+      <div id="records"></div>
+      <p><button id="reset" class="btn gray small">기록 모두 지우기</button></p>
+    </section>
+  </main>
+  <footer>데이터: 소상공인시장진흥공단 상가(상권)정보 API (공공데이터포털)</footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="common.js"></script>
+  <script>
+    renderHeader('my.html');
+    document.getElementById('nick').value = store.get('nick', '');
+    render();
+
+    function render() {
+      const lv = myLevel(), stamps = myStamps(), next = nextLevel();
+      const cnt = Array(10).fill(0);
+      stamps.forEach(s => cnt[s.lv]++);
+
+      // 내 레벨과 진행도
+      document.getElementById('status').innerHTML = `
+        <div class="result">
+          <div class="ic">${lv ? LEVELS[lv].icon : '🌱'}</div>
+          <div class="lvbig">Lv.${lv}</div>
+          <h2>${titleOf(lv)}</h2>
+          <div class="bar"><i style="width:${lv / 9 * 100}%"></i></div>
+          <p class="hint">혼밥 마스터까지 ${9 - lv}단계 · 도장 ${stamps.length}개</p>
+          ${lv < 9 ? `<a class="btn" href="map.html?lv=${next}">🗺️ 다음 도전 Lv.${next} ${LEVELS[next].name} 찾기</a>` : '<b>🎉 혼밥 최고 레벨!</b>'}
+        </div>`;
+
+      // 레벨별 도장판
+      document.getElementById('board').innerHTML = LEVELS.slice(1).map(info => {
+        const done = cnt[info.lv] > 0;
+        return `<div class="cell ${done ? 'done' : ''}" style="${done ? `background:${info.color};border-color:${info.color}` : ''}">
+          <div class="ic">${info.icon}</div><b>Lv.${info.lv}</b><br>
+          <small>${info.name}${done ? ` · ${cnt[info.lv]}곳` : ''}</small></div>`;
+      }).join('');
+
+      // 기록 목록 (최신순)
+      document.getElementById('records').innerHTML = stamps.length
+        ? stamps.slice().reverse().map(s => `<div class="item"><div>${levelBadge(s.lv)} <b>${esc(s.name)}</b>
+            <div class="meta">${esc(s.scls)} · ${esc(s.area)} · ${esc(s.date)}</div></div></div>`).join('')
+        : '<p class="hint">아직 도장이 없어요. 혼밥 지도에서 식당을 골라 "혼밥 성공 도장"을 찍어 보세요!</p>';
+
+      renderCert();
+    }
+
+    document.getElementById('reset').onclick = () => {
+      if (!confirm('혼밥 기록과 테스트 결과를 모두 지울까요?')) return;
+      store.set('stamps', []);
+      store.set('testLevel', 0);
+      render();
+    };
+
+    // 자격증 발급 (자격번호는 스프레드시트에 기록)
+    document.getElementById('issue').onclick = async () => {
+      const nick = document.getElementById('nick').value.trim() || '익명의 혼밥러';
+      store.set('nick', nick);
+      const btn = document.getElementById('issue');
+      btn.disabled = true;
+      btn.textContent = '발급 중…';
+      try {
+        const res = await api({ action: 'cert', nick, level: myLevel(), stamps: myStamps().length });
+        store.set('cert', { no: res.no, total: res.total, nick, level: myLevel(), stamps: myStamps().length, date: new Date().toLocaleDateString('ko-KR') });
+        renderCert();
+        toast('🎓 혼밥 자격증이 발급됐어요!');
+      } catch (err) {
+        showError(err);
+      }
+      btn.disabled = false;
+      btn.textContent = '🎓 자격증 발급';
+    };
+
+    function renderCert() {
+      const c = store.get('cert', null);
+      const box = document.getElementById('certBox');
+      if (!c) { box.innerHTML = '<p class="hint">닉네임을 쓰고 발급 버튼을 눌러 보세요.</p>'; return; }
+      const info = LEVELS[c.level];
+      box.innerHTML = `
+        <div id="cert" class="cert">
+          <div class="head">혼 밥 자 격 증</div>
+          <table>
+            <tr><th>성명</th><td>${esc(c.nick)}</td></tr>
+            <tr><th>등급</th><td>Lv.${c.level} ${c.level ? info.icon + ' ' + info.name : '🌱'}</td></tr>
+            <tr><th>칭호</th><td>${titleOf(c.level)}</td></tr>
+            <tr><th>혼밥 도장</th><td>${c.stamps}개</td></tr>
+            <tr><th>취득일</th><td>${esc(c.date)}</td></tr>
+            <tr><th>자격번호</th><td>${esc(c.no)}</td></tr>
+          </table>
+          <div class="foot">
+            <div>위 사람은 혼자서도 당당하게<br>밥을 먹을 수 있음을 증명합니다.<br><b>혼밥 레벨 지도</b> <span class="seal">혼밥<br>인증</span></div>
+            <div id="qr"></div>
+          </div>
+        </div>
+        <div class="row center" style="margin-top:12px"><button id="save" class="btn">💾 이미지로 저장</button></div>
+        <p class="hint" style="text-align:center">${c.total}번째로 발급된 자격증이에요 · QR을 찍으면 혼밥 레벨 지도로 이동해요</p>`;
+
+      new QRCode(document.getElementById('qr'), { text: new URL('index.html', location.href).href, width: 128, height: 128, correctLevel: QRCode.CorrectLevel.M });
+      document.getElementById('save').onclick = () => {
+        html2canvas(document.getElementById('cert'), { scale: 2, backgroundColor: null }).then(canvas => {
+          const a = document.createElement('a');
+          a.download = `혼밥자격증_${c.nick}.png`;
+          a.href = canvas.toDataURL('image/png');
+          a.click();
+        });
+      };
+    }
+  </script>
+</body>
+</html>
