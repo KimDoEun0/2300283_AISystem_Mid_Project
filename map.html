@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>내 주변 혼밥 지도 - 혼밥 레벨 지도</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="top"></header>
+  <main>
+    <section class="card">
+      <h2>🗺️ 내 주변 혼밥 지도</h2>
+      <p class="hint">고른 위치 반경 500m의 <b>실제 식당</b>을 혼밥 레벨별 색으로 보여 줘요. 혼밥에 성공하면 🍚 도장을 찍어 레벨업!</p>
+      <p id="status"></p>
+      <div class="row">
+        <button id="myLoc" class="btn ghost small">📡 내 위치</button>
+        <span class="hint">또는 동네 선택 · 지도 클릭</span>
+      </div>
+      <div id="spots" class="chips"></div>
+      <div id="summary"></div>
+      <div id="lvchips" class="chips"></div>
+    </section>
+
+    <div class="split">
+      <div class="card" style="margin-top:0"><div id="map" class="map"></div></div>
+      <div class="card" style="margin-top:0">
+        <h2>📋 가까운 순</h2>
+        <div id="list" class="list"></div>
+      </div>
+    </div>
+  </main>
+  <footer>데이터: 소상공인시장진흥공단 상가(상권)정보 API (공공데이터포털)</footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="common.js"></script>
+  <script>
+    renderHeader('map.html');
+    const params = new URLSearchParams(location.search);
+    let filter = Number(params.get('lv')) || 0;  // 0 = 전체
+    let stores = [], markers = [], here = null;
+    const map = makeMap('map', [37.5559, 126.9368], 16);
+    const layer = L.layerGroup().addTo(map);
+
+    renderStatus();
+
+    // 위치 고르기: 추천 동네 / 내 위치 / 지도 클릭
+    document.getElementById('spots').innerHTML = SPOTS.map((s, i) => `<button class="chip" data-i="${i}">${s[0]}</button>`).join('');
+    document.getElementById('spots').onclick = e => {
+      const b = e.target.closest('.chip');
+      if (b) { const s = SPOTS[b.dataset.i]; load(s[1], s[2], s[0]); }
+    };
+    document.getElementById('myLoc').onclick = () => {
+      if (!navigator.geolocation) return alert('이 브라우저는 위치 기능을 지원하지 않아요.');
+      navigator.geolocation.getCurrentPosition(
+        p => load(p.coords.latitude, p.coords.longitude, '내 위치'),
+        () => alert('위치 권한을 허용해 주세요. 대신 동네 버튼이나 지도를 눌러도 돼요.'));
+    };
+    map.on('click', e => load(e.latlng.lat, e.latlng.lng, '지도에서 고른 곳'));
+    load(SPOTS[0][1], SPOTS[0][2], SPOTS[0][0]);
+
+    function renderStatus() {
+      const lv = myLevel();
+      document.getElementById('status').innerHTML =
+        `내 레벨 ${levelBadge(lv)} · 다음 도전 ${lv < 9 ? levelBadge(nextLevel()) : '없음 🎉'} <a href="test.html" class="hint">(테스트하기)</a>`;
+    }
+
+    async function load(lat, lon, label) {
+      here = { lat, lon, label };
+      map.setView([lat, lon], 16);
+      layer.clearLayers();
+      markers = [];
+      L.circle([lat, lon], { radius: 500, color: '#FF7A45', fill: false, dashArray: '6' }).addTo(layer);
+      L.marker([lat, lon]).addTo(layer).bindPopup(`<b>${esc(label)}</b>`);
+      loading(document.getElementById('summary'), `${esc(label)} 반경 500m의 식당을 찾는 중… 🍚`);
+      document.getElementById('list').innerHTML = '';
+      document.getElementById('lvchips').innerHTML = '';
+      try {
+        const d = await api({ action: 'meals', lat, lon, r: 500 });
+        // 식당마다 혼밥 레벨과 거리 계산 → 레벨이 있는 곳만, 가까운 순
+        stores = d.list
+          .map(([name, mcls, scls, la, lo]) => ({ name, scls, lat: la, lon: lo, lv: levelOf(mcls, scls), dist: distKm(lat, lon, la, lo) * 1000 }))
+          .filter(s => s.lv && s.dist <= 500)
+          .sort((a, b) => a.dist - b.dist);
+        renderSummary(d, label);
+        renderChips();
+        renderMarkers();
+        renderList();
+      } catch (err) {
+        document.getElementById('summary').innerHTML = '';
+        showError(err);
+      }
+    }
+
+    function renderSummary(d, label) {
+      const n = stores.length;
+      const easy = stores.filter(s => s.lv <= 4).length;
+      const ratio = n ? easy / n : 0;
+      const avg = n ? (stores.reduce((a, s) => a + s.lv, 0) / n).toFixed(1) : '-';
+      const verdict = ratio >= 0.5 ? '😇 혼밥 천국' : ratio >= 0.3 ? '🙂 혼밥 무난' : '😈 혼밥 고수의 동네';
+      document.getElementById('summary').innerHTML = `
+        <p><b>📍 ${esc(label)}</b> <span class="hint">(${esc(d.area)})</span></p>
+        <div class="summary">
+          <div class="stat"><div class="label">혼밥 가능 식당</div><div class="value">${n}곳</div></div>
+          <div class="stat"><div class="label">혼밥 천국 지수</div><div class="value">${Math.round(ratio * 100)}점</div><small>${verdict}</small></div>
+          <div class="stat"><div class="label">평균 혼밥 난이도</div><div class="value">Lv.${avg}</div></div>
+          <div class="stat"><div class="label">가장 가까운 식당</div><div class="value">${n ? Math.round(stores[0].dist) + 'm' : '-'}</div></div>
+        </div>
+        <details><summary>ⓘ 어떻게 계산했나요?</summary>
+          상가정보 API의 업종(중분류·소분류) 이름으로 식당마다 혼밥 레벨을 정했어요.
+          혼밥 천국 지수는 혼자 가기 쉬운 Lv.1~4 식당의 비율이고, 거리는 위도·경도로 직선거리를 계산했어요.
+        </details>`;
+    }
+
+    function renderChips() {
+      const cnt = Array(10).fill(0);
+      stores.forEach(s => cnt[s.lv]++);
+      const box = document.getElementById('lvchips');
+      box.innerHTML = `<button class="chip ${filter ? '' : 'on'}" data-lv="0">전체 ${stores.length}</button>` +
+        LEVELS.slice(1).map(info => {
+          const on = filter === info.lv;
+          return `<button class="chip ${on ? 'on' : ''}" data-lv="${info.lv}" style="${on ? `background:${info.color};border-color:${info.color}` : ''}">${info.icon} Lv.${info.lv} · ${cnt[info.lv]}</button>`;
+        }).join('');
+      box.onclick = e => {
+        const b = e.target.closest('.chip');
+        if (!b) return;
+        filter = Number(b.dataset.lv);
+        renderChips();
+        renderMarkers();
+        renderList();
+      };
+    }
+
+    function renderMarkers() {
+      markers.forEach(m => layer.removeLayer(m));
+      markers = [];
+      stores.forEach((s, i) => {
+        if (filter && s.lv !== filter) return;
+        const m = L.circleMarker([s.lat, s.lon], { radius: 6, color: '#fff', weight: 1, fillColor: LEVELS[s.lv].color, fillOpacity: 0.9 })
+          .bindPopup(() => popupHtml(i))
+          .addTo(layer);
+        m.idx = i;
+        markers.push(m);
+      });
+    }
+
+    function popupHtml(i) {
+      const s = stores[i], done = isStamped(s);
+      return `<b>${esc(s.name)}</b><br>${levelBadge(s.lv)}<br>
+        <small>${esc(s.scls)} · ${Math.round(s.dist)}m (걸어서 ${walkMin(s.dist)}분)</small><br>
+        <button class="btn small ${done ? 'gray' : 'green'}" onclick="stamp(${i})" ${done ? 'disabled' : ''}>${done ? '✅ 혼밥 성공' : '🍚 혼밥 성공 도장'}</button>`;
+    }
+
+    function renderList() {
+      const rows = stores.map((s, i) => [s, i]).filter(([s]) => !filter || s.lv === filter).slice(0, 40);
+      document.getElementById('list').innerHTML = rows.length ? rows.map(([s, i]) => {
+        const done = isStamped(s);
+        return `<div class="item" data-i="${i}">
+          <div>${levelBadge(s.lv)}<br><b>${esc(s.name)}</b>
+            <div class="meta">${esc(s.scls)} · ${Math.round(s.dist)}m · 걸어서 ${walkMin(s.dist)}분</div></div>
+          <button class="btn small ${done ? 'gray' : 'green'}" data-stamp="${i}" ${done ? 'disabled' : ''}>${done ? '✅' : '🍚 도장'}</button>
+        </div>`;
+      }).join('') : '<p class="hint">이 레벨 식당이 근처에 없어요. 다른 레벨이나 동네를 골라 보세요.</p>';
+    }
+
+    // 목록 클릭: 도장 버튼이면 도장, 아니면 지도에서 그 식당 보여 주기
+    document.getElementById('list').onclick = e => {
+      const st = e.target.closest('[data-stamp]');
+      if (st) { stamp(Number(st.dataset.stamp)); return; }
+      const it = e.target.closest('.item');
+      if (!it) return;
+      const m = markers.find(x => x.idx === Number(it.dataset.i));
+      if (m) { map.setView(m.getLatLng(), 18); m.openPopup(); }
+    };
+
+    // ---------- 혼밥 도장 ----------
+    function stampId(s) { return s.name + '@' + s.lat.toFixed(5) + ',' + s.lon.toFixed(5); }
+    function isStamped(s) { const id = stampId(s); return myStamps().some(x => x.id === id); }
+    function stamp(i) {
+      const s = stores[i];
+      if (isStamped(s)) return;
+      const before = myLevel();
+      const list = myStamps();
+      list.push({ id: stampId(s), name: s.name, lv: s.lv, scls: s.scls, area: here.label, date: new Date().toLocaleDateString('ko-KR') });
+      store.set('stamps', list);
+      const after = myLevel();
+      toast(after > before ? `🎉 레벨업! Lv.${after} ${titleOf(after)}` : `🍚 Lv.${s.lv} ${LEVELS[s.lv].name} 혼밥 성공!`);
+      map.closePopup();
+      renderStatus();
+      renderList();
+    }
+  </script>
+</body>
+</html>
