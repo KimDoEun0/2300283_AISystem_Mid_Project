@@ -1,85 +1,444 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>혼밥 레벨 지도 - 혼자 밥 먹을 곳, 레벨별로 찾아 줄게</title>
-  <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>혼밥 레벨 지도</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<link rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header id="top"></header>
-  <main>
-    <section class="hero">
-      <div class="hero-emoji">🍜</div>
-      <h1>혼밥 레벨 지도</h1>
-      <p class="lead"><b>혼자 밥 먹을 곳, 레벨별로 찾아 줄게!</b></p>
-      <p class="sub">내 혼밥 레벨을 알아보고, 내 주변 <b>실제 식당 데이터</b>로 다음 레벨에 도전해 보세요.</p>
-      <div class="row center">
-        <a class="btn" href="test.html">🧪 내 혼밥 레벨 테스트</a>
-        <a class="btn ghost" href="map.html">🗺️ 내 주변 혼밥 지도</a>
-      </div>
-      <div id="mine"></div>
-    </section>
+<main class="wrap">
 
-    <section class="card">
-      <h2>👣 이렇게 써요</h2>
-      <div class="steps">
-        <div><span class="num">1</span><b>레벨 테스트</b><p class="hint">9개 질문으로 지금 내 혼밥 레벨을 알아봐요.</p></div>
-        <div><span class="num">2</span><b>혼밥 지도</b><p class="hint">내 주변 반경 500m 식당을 레벨별로 보고, 다음 레벨에 도전해요.</p></div>
-        <div><span class="num">3</span><b>도장 & 자격증</b><p class="hint">혼밥에 성공하면 도장을 찍고, 레벨업하면 자격증을 받아요.</p></div>
-      </div>
-    </section>
+  <section class="card" id="summary"></section>
 
-    <section class="card">
-      <h2>📶 혼밥 레벨표</h2>
-      <div id="levels" class="levels"></div>
-      <p class="hint">공공데이터포털 <b>상가(상권)정보</b>의 업종 분류로 식당마다 레벨을 자동으로 정해요.</p>
-    </section>
+  <section class="filters" id="chipBox" hidden>
+    <div class="chips" id="lvChips"></div>
+    <div class="chips" id="catChips"></div>
+  </section>
 
-    <section class="card">
-      <h2>📊 다른 사람들의 혼밥 레벨</h2>
-      <canvas id="chart" height="200"></canvas>
-      <p id="statText" class="hint"></p>
-    </section>
-  </main>
-  <footer>데이터: 소상공인시장진흥공단 상가(상권)정보 API (공공데이터포털)</footer>
+  <section class="card" id="mapCard">
+    <form class="search" id="sf">
+      <input id="q" type="search" autocomplete="off"
+        placeholder="장소 검색 (예: 홍대입구역)">
+      <button class="btn-sm" type="submit">검색</button>
+    </form>
+    <div id="results"></div>
+    <div class="chips" id="places"></div>
+    <p class="here" id="here">위치를 정해 주세요</p>
+    <div id="map" class="map"></div>
+    <p class="sub hint">지도를 누르면 그 위치 주변을 찾아요</p>
+  </section>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
-  <script src="common.js"></script>
-  <script>
-    renderHeader('index.html');
+  <section class="card">
+    <div class="card-title" id="listTitle">가까운 식당</div>
+    <div id="list"></div>
+  </section>
 
-    // 내 현재 상태 (테스트를 했거나 도장이 있으면 보여 주기)
-    if (store.get('testLevel', null) !== null || myStamps().length) {
-      const lv = myLevel(), next = nextLevel();
-      document.getElementById('mine').innerHTML = `<div class="mine">
-        지금 나는 ${levelBadge(lv)} <b>${titleOf(lv)}</b><br>
-        ${lv < 9 ? `다음 도전 ${levelBadge(next)} <a class="btn small" href="map.html?lv=${next}">내 주변에서 찾기 →</a>` : '🎉 혼밥 최고 레벨 달성!'}
-      </div>`;
+  <p class="sub source" id="source"></p>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="common.js"></script>
+<script>
+renderNav('index.html');
+
+// ---------- 지도 ----------
+const map = L.map('map').setView([37.5665, 126.978], 15);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; OpenStreetMap'
+}).addTo(map);
+const markerLayer = L.layerGroup().addTo(map);
+const centerLayer = L.layerGroup().addTo(map);
+
+let center = null;
+let all = null; // null = 아직 안 불러옴
+let fLv = 0;
+let fCat = '';
+let shown = 50;
+let token = 0;
+let selected = null;
+
+map.on('click', e => {
+  load(e.latlng.lat, e.latlng.lng, '선택한 위치');
+});
+
+function drawCenter() {
+  centerLayer.clearLayers();
+  L.circle([center.lat, center.lng], {
+    radius: 500, color: '#3182F6', weight: 1,
+    fillOpacity: 0.04, interactive: false
+  }).addTo(centerLayer);
+  L.circleMarker([center.lat, center.lng], {
+    radius: 7, color: '#fff', weight: 3,
+    fillColor: '#3182F6', fillOpacity: 1, interactive: false
+  }).addTo(centerLayer);
+}
+
+// ---------- 위치 정하기 → 불러오기 ----------
+async function load(lat, lng, label, focusName) {
+  const my = ++token;
+  center = { lat: lat, lng: lng, label: label };
+  store.set('lastLoc', center);
+  map.setView([lat, lng], 16);
+  drawCenter();
+  $('here').textContent = '\u{1F4CD} ' + label + ' 주변 500m';
+  all = null;
+  fLv = 0;
+  fCat = '';
+  shown = 50;
+  selected = null;
+  markerLayer.clearLayers();
+  $('chipBox').hidden = true;
+  $('listTitle').textContent = '가까운 식당';
+  $('list').innerHTML = loadingHtml('주변 식당을 찾고 있어요');
+  renderSummary();
+  try {
+    const d = await loadStores(lat, lng);
+    if (my !== token) return;
+    all = d.list;
+    $('source').textContent =
+      '자료: 소상공인시장진흥공단 상가(상권)정보 · ' +
+      fmtYm(d.stdrYm) + ' 기준';
+    renderSummary();
+    renderChips();
+    renderStores();
+    if (focusName) {
+      const s = all.find(x => x.name === focusName);
+      if (s) focusStore(s);
     }
+  } catch (e) {
+    if (my !== token) return;
+    $('list').innerHTML = msgHtml(
+      '정보를 불러오지 못했어요', e.message,
+      '<button class="btn btn-primary" id="retry">다시 시도</button>'
+    );
+    $('retry').onclick = () => load(lat, lng, label, focusName);
+    renderSummary();
+  }
+}
 
-    // 레벨표
-    document.getElementById('levels').innerHTML = LEVELS.slice(1).map(info => `
-      <div class="level" style="background:${info.color}">
-        <div class="ic">${info.icon}</div><b>Lv.${info.lv} ${info.name}</b>
-        <small>${info.title} · ${info.ex}</small>
-      </div>`).join('');
+function myLoc() {
+  if (!navigator.geolocation) return noLoc();
+  $('here').textContent = '내 위치를 확인하고 있어요…';
+  navigator.geolocation.getCurrentPosition(
+    p => load(p.coords.latitude, p.coords.longitude, '내 위치'),
+    noLoc,
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+  );
+}
+function noLoc() {
+  $('here').textContent = '지도를 눌러 위치를 정해 주세요';
+  if (!center) {
+    $('list').innerHTML = msgHtml(
+      '위치를 정해 주세요',
+      '지도를 누르거나 장소를 검색해 주세요', ''
+    );
+  }
+}
 
-    // 참여자 레벨 분포 차트 (스프레드시트에 저장된 테스트 결과)
-    api({ action: 'stats' }).then(s => {
-      new Chart(document.getElementById('chart'), {
-        type: 'bar',
-        data: {
-          labels: s.counts.map((_, i) => 'Lv.' + i),
-          datasets: [{ label: '참여자 수', data: s.counts,
-            backgroundColor: ['#BDBDBD', ...LEVELS.slice(1).map(x => x.color)] }],
-        },
-        options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } },
-      });
-      document.getElementById('statText').textContent = s.total
-        ? `지금까지 ${s.total}명이 테스트했어요 · 평균 Lv.${s.avg}`
-        : '아직 참여자가 없어요. 첫 번째 주인공이 되어 보세요!';
-    }).catch(showError);
-  </script>
+// ---------- 내 레벨 맞춤 요약 ----------
+function stat(label, value, id) {
+  const idAttr = id ? ' id="' + id + '"' : '';
+  return '<button class="stat"' + idAttr + '>' +
+    '<span class="sub">' + label + '</span>' +
+    '<b>' + value + '</b></button>';
+}
+
+function renderSummary() {
+  const box = $('summary');
+  if (!hasTested()) {
+    box.innerHTML =
+      '<div class="sum-head"><div class="emo">\u{1F914}</div><div>' +
+      '<div class="card-title" style="margin:0">내 혼밥 레벨은?</div>' +
+      '<p class="sub">테스트하면 내 레벨에 맞는 식당을 골라 드려요</p>' +
+      '</div></div>' +
+      '<a class="btn btn-primary" href="test.html">테스트 하러 가기</a>';
+    return;
+  }
+  const t = getTried();
+  const lv = myLevel();
+  const nx = nextLevel();
+  const n = triedCount();
+  const cnt = f => all ? all.filter(f).length + '곳' : '…';
+
+  let h =
+    '<div class="sum-head"><div class="emo">' + LEVELS[lv].emoji +
+    '</div><div><p class="sub">내 혼밥 레벨</p>' +
+    '<div class="big">' + lvTitle(lv) + '</div></div></div>' +
+    '<div class="bar"><i style="width:' + (n / 9 * 100) + '%"></i></div>' +
+    '<p class="sub" style="margin-top:6px">해 본 레벨 ' + n + ' / 9</p>' +
+    '<div class="stats">';
+  if (n > 0) {
+    h += stat('갈 수 있는 곳', cnt(s => t[s.lv]));
+  }
+  if (nx) {
+    const word = n === 0 ? '첫 도전' : '다음 도전';
+    h += stat(word + ' · ' + lvTitle(nx),
+      cnt(s => s.lv === nx), 'nextStat');
+  } else {
+    h += stat('다음 도전', '완료 \u{1F389}');
+  }
+  h += '</div>';
+
+  let near = null;
+  if (all && nx) {
+    near = all.find(s => s.lv === nx);
+    if (near) {
+      h += '<button class="near" id="near">가장 가까운 곳 <b>' +
+        esc(near.name) + '</b> (' + fmtDist(near.dist) + ') \u{203A}</button>';
+    } else {
+      h += '<p class="sub near">주변 500m에 Lv.' + nx +
+        ' 식당이 없어요. 위 검색창으로 원정을 떠나 보세요!</p>';
+    }
+  }
+  box.innerHTML = h;
+
+  if ($('nextStat') && all) $('nextStat').onclick = () => setLv(nx);
+  if ($('near')) $('near').onclick = () => focusStore(near);
+}
+
+// ---------- 필터 ----------
+function chip(text, on, attr) {
+  return '<button class="chip' + (on ? ' on' : '') + '" ' + attr + '>' +
+    esc(text) + '</button>';
+}
+
+function renderChips() {
+  $('chipBox').hidden = false;
+  const lvCount = new Array(10).fill(0);
+  all.forEach(s => { lvCount[s.lv]++; });
+
+  let h = chip('전체 ' + all.length, !fLv, 'data-lv="0"');
+  for (let lv = 1; lv <= 9; lv++) {
+    const info = LEVELS[lv];
+    h += chip(info.emoji + ' Lv.' + lv + ' ' + info.label +
+      ' ' + lvCount[lv], fLv === lv, 'data-lv="' + lv + '"');
+  }
+  $('lvChips').innerHTML = h;
+
+  const cats = {};
+  all.filter(s => !fLv || s.lv === fLv).forEach(s => {
+    cats[s.scls] = (cats[s.scls] || 0) + 1;
+  });
+  const keys = Object.keys(cats).sort((a, b) => cats[b] - cats[a]);
+  let c = chip('모든 업종', !fCat, 'data-cat=""');
+  keys.forEach(k => {
+    c += chip(k + ' ' + cats[k], fCat === k,
+      'data-cat="' + esc(k) + '"');
+  });
+  $('catChips').innerHTML = c;
+}
+
+function setLv(lv) {
+  fLv = lv;
+  fCat = '';
+  shown = 50;
+  renderChips();
+  renderStores();
+}
+
+$('lvChips').onclick = e => {
+  const b = e.target.closest('[data-lv]');
+  if (b) setLv(Number(b.dataset.lv));
+};
+$('catChips').onclick = e => {
+  const b = e.target.closest('[data-cat]');
+  if (!b) return;
+  fCat = b.dataset.cat;
+  shown = 50;
+  renderChips();
+  renderStores();
+};
+
+function filtered() {
+  return all.filter(s =>
+    (!fLv || s.lv === fLv) && (!fCat || s.scls === fCat));
+}
+
+// ---------- 지도 마커 + 목록 ----------
+function popupHtml(s) {
+  return '<div class="pop"><b>' + esc(s.name) + '</b><br>' +
+    lvBadge(s.lv) + ' ' + esc(LEVELS[s.lv].label) +
+    ' · ' + esc(s.scls) + '<br>' +
+    '<span class="sub">' + esc(s.addr) + ' · ' +
+    fmtDist(s.dist) + '</span><br>' +
+    '<a href="' + kakaoLink(s) + '" target="_blank" rel="noopener">' +
+    '카카오맵에서 보기 \u{203A}</a></div>';
+}
+
+function renderStores() {
+  markerLayer.clearLayers();
+  selected = null;
+  const list = filtered();
+
+  list.forEach(s => {
+    const icon = L.divIcon({
+      className: '',
+      html: '<div class="mk" style="--c:' + LEVELS[s.lv].color + '">' +
+        s.lv + '</div>',
+      iconSize: [24, 24],
+      iconAnchor: [12, 12]
+    });
+    s.m = L.marker([s.lat, s.lng], { icon: icon })
+      .bindPopup(popupHtml(s))
+      .addTo(markerLayer);
+  });
+
+  let title = fLv ? 'Lv.' + fLv + ' ' + LEVELS[fLv].label : '전체';
+  if (fCat) title += ' · ' + fCat;
+  $('listTitle').innerHTML = esc(title) +
+    ' <span class="num">' + list.length + '곳</span>';
+
+  if (!all.length) {
+    $('list').innerHTML = msgHtml(
+      '반경 안에 식당이 없어요',
+      '다른 곳으로 혼밥 원정을 떠나 볼까요?',
+      '<button class="btn btn-primary" id="trip">원정 떠나기</button>'
+    );
+    $('trip').onclick = startTrip;
+    return;
+  }
+  if (!list.length) {
+    $('list').innerHTML = msgHtml(
+      '조건에 맞는 식당이 없어요',
+      '다른 레벨이나 업종을 골라 보세요', ''
+    );
+    return;
+  }
+
+  let h = '<ul class="list">' +
+    list.slice(0, shown).map(storeItemHtml).join('') + '</ul>';
+  if (list.length > shown) {
+    h += '<button class="btn btn-gray" id="more">더 보기 (' +
+      (list.length - shown) + '곳 남음)</button>';
+  }
+  $('list').innerHTML = h;
+  $('list').querySelectorAll('.item').forEach(li => {
+    li.onclick = () => focusStore(list[li.dataset.i]);
+  });
+  if ($('more')) {
+    $('more').onclick = () => {
+      shown += 50;
+      renderStores();
+    };
+  }
+}
+
+function focusStore(s) {
+  if (!s.m || !markerLayer.hasLayer(s.m)) {
+    fLv = 0;
+    fCat = '';
+    renderChips();
+    renderStores();
+  }
+  if (selected && selected.m.getElement()) {
+    selected.m.getElement().firstChild.classList.remove('on');
+  }
+  selected = s;
+  map.setView([s.lat, s.lng], 17);
+  s.m.setZIndexOffset(1000).openPopup();
+  const el = s.m.getElement();
+  if (el) el.firstChild.classList.add('on');
+  $('mapCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ---------- 장소 검색 (원정도 같은 검색창) ----------
+function startTrip() {
+  $('q').placeholder = '어디로 원정 갈까요? (예: 성수역)';
+  $('mapCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  $('q').focus();
+}
+
+$('sf').onsubmit = async e => {
+  e.preventDefault();
+  const q = $('q').value.trim();
+  if (!q) return;
+  $('results').innerHTML = '<p class="sub">찾고 있어요…</p>';
+  try {
+    const rs = await api({ action: 'search', query: q });
+    if (!rs.length) {
+      $('results').innerHTML = '<p class="sub">검색 결과가 없어요</p>';
+      return;
+    }
+    $('results').innerHTML = rs.map((r, i) =>
+      '<button class="result" data-i="' + i + '"><b>' +
+      esc(r.name) + '</b><span class="sub">' + esc(r.addr) +
+      '</span></button>').join('');
+    $('results').querySelectorAll('.result').forEach(b => {
+      b.onclick = () => {
+        const r = rs[b.dataset.i];
+        $('results').innerHTML = '';
+        $('q').value = '';
+        load(r.lat, r.lng, r.name);
+      };
+    });
+  } catch (err) {
+    $('results').innerHTML = '<p class="sub">' + esc(err.message) + '</p>';
+  }
+};
+
+// ---------- 자주 가는 장소 ----------
+function renderPlaces() {
+  const ps = store.get('places', []);
+  let h = '<button class="chip" id="me">\u{1F4CD} 내 위치</button>';
+  ps.forEach((p, i) => {
+    h += '<button class="chip" data-i="' + i + '">\u{2B50} ' +
+      esc(p.name) + '<span class="x" data-x="' + i + '">\u{2715}</span>' +
+      '</button>';
+  });
+  h += '<button class="chip" id="savePlace">+ 이 위치 저장</button>';
+  $('places').innerHTML = h;
+}
+
+$('places').onclick = e => {
+  const ps = store.get('places', []);
+  const x = e.target.closest('[data-x]');
+  if (x) {
+    ps.splice(Number(x.dataset.x), 1);
+    store.set('places', ps);
+    renderPlaces();
+    return;
+  }
+  if (e.target.closest('#me')) return myLoc();
+  if (e.target.closest('#savePlace')) {
+    if (!center) return toast('먼저 위치를 정해 주세요');
+    if (ps.length >= 5) return toast('장소는 5개까지 저장돼요');
+    const name = prompt('이 장소의 이름 (예: 집, 학교)', '');
+    if (!name || !name.trim()) return;
+    ps.push({ name: name.trim().slice(0, 10),
+      lat: center.lat, lng: center.lng });
+    store.set('places', ps);
+    renderPlaces();
+    toast('자주 가는 장소에 저장했어요');
+    return;
+  }
+  const b = e.target.closest('[data-i]');
+  if (b) {
+    const p = ps[Number(b.dataset.i)];
+    load(p.lat, p.lng, p.name);
+  }
+};
+
+// ---------- 시작 ----------
+renderPlaces();
+renderSummary();
+const P = new URLSearchParams(location.search);
+const last = store.get('lastLoc', null);
+if (P.get('lat') && P.get('lng')) {
+  load(Number(P.get('lat')), Number(P.get('lng')),
+    P.get('label') || '선택한 위치', P.get('focus'));
+} else if (last) {
+  load(last.lat, last.lng, last.label);
+} else {
+  myLoc();
+}
+</script>
 </body>
 </html>
