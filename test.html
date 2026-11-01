@@ -58,7 +58,7 @@ function answer(v) {
   if (idx < 9) {
     showQ();
   } else {
-    store.set('tried', ans);
+    store.set('answers', ans); // 도전 기록(log)은 그대로 유지
     store.del('target');
     showResult();
   }
