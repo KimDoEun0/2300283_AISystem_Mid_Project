@@ -444,3 +444,18 @@ input { font: inherit; letter-spacing: inherit; }
   border-radius: 8px;
 }
 .rec-x:hover { background: var(--gray-2); }
+/* ---------- 추가: 필터 칩 한 번에 보기 ---------- */
+.filters {
+  position: static;
+  margin: 0 0 12px;
+  padding: 0;
+}
+.filters .chips {
+  flex-wrap: wrap;
+  overflow-x: visible;
+}
+.filters #catChips {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--gray-2);
+}
