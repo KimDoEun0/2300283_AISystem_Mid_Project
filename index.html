@@ -58,8 +58,9 @@ const markerLayer = L.layerGroup().addTo(map);
 const centerLayer = L.layerGroup().addTo(map);
 
 let center = null;
-let all = null; // null = 아직 안 불러옴
-let fLv = 0;    // 0 = 전체, 1~9 = 그 레벨, -1 = 갈 수 있는 곳
+let all = null;  // null = 아직 안 불러옴
+let byId = {};   // 업소번호 → 식당
+let fLv = 0;     // 0 = 전체, 1~9 = 그 레벨, -1 = 갈 수 있는 곳
 let fCat = '';
 let shown = 50;
 let token = 0;
@@ -82,7 +83,7 @@ function drawCenter() {
 }
 
 // ---------- 위치 정하기 → 불러오기 ----------
-async function load(lat, lng, label, focusName) {
+async function load(lat, lng, label, focusId) {
   const my = ++token;
   center = { lat: lat, lng: lng, label: label };
   store.set('lastLoc', center);
@@ -90,6 +91,7 @@ async function load(lat, lng, label, focusName) {
   drawCenter();
   $('here').textContent = '\u{1F4CD} ' + label + ' 주변 500m';
   all = null;
+  byId = {};
   fLv = 0;
   fCat = '';
   shown = 50;
@@ -103,15 +105,17 @@ async function load(lat, lng, label, focusName) {
     const d = await loadStores(lat, lng);
     if (my !== token) return;
     all = d.list;
+    all.forEach(s => { byId[s.id] = s; });
     $('source').textContent =
       '자료: 소상공인시장진흥공단 상가(상권)정보 · ' +
       fmtYm(d.stdrYm) + ' 기준';
     renderSummary();
     renderChips();
     renderStores();
-    if (focusName) {
-      const s = all.find(x => x.name === focusName);
+    if (focusId) {
+      const s = byId[focusId];
       if (s) focusStore(s);
+      else toast('식당을 찾지 못했어요. 폐업 등으로 빠졌을 수 있어요');
     }
   } catch (e) {
     if (my !== token) return;
@@ -119,7 +123,7 @@ async function load(lat, lng, label, focusName) {
       '정보를 불러오지 못했어요', e.message,
       '<button class="btn btn-primary" id="retry">다시 시도</button>'
     );
-    $('retry').onclick = () => load(lat, lng, label, focusName);
+    $('retry').onclick = () => load(lat, lng, label, focusId);
     renderSummary();
   }
 }
@@ -153,7 +157,7 @@ function stat(label, value, id) {
 
 function renderSummary() {
   const box = $('summary');
-  if (!hasTested()) {
+  if (!hasAny()) {
     box.innerHTML =
       '<div class="sum-head"><div class="emo">\u{1F914}</div><div>' +
       '<div class="card-title" style="margin:0">내 혼밥 레벨은?</div>' +
@@ -198,6 +202,10 @@ function renderSummary() {
         ' 식당이 없어요. 위 검색창으로 원정을 떠나 보세요!</p>';
     }
   }
+  if (!hasTested()) {
+    h += '<a class="near" href="test.html">' +
+      '테스트하면 더 정확해요 \u{203A}</a>';
+  }
   box.innerHTML = h;
 
   if ($('nextStat') && all) $('nextStat').onclick = () => setLv(nx);
@@ -213,7 +221,7 @@ function chip(text, on, attr) {
 
 // 레벨 조건: 0 = 전체, 1~9 = 그 레벨, -1 = 갈 수 있는 곳(해 본 레벨)
 function matchLv(s) {
-  if (fLv === -1) return !!(getTried() || [])[s.lv];
+  if (fLv === -1) return getTried()[s.lv];
   return !fLv || s.lv === fLv;
 }
 
@@ -272,17 +280,59 @@ $('catChips').onclick = e => {
   renderStores();
 };
 
-// ---------- 지도 마커 + 목록 ----------
+// ---------- 정보창 + 기록 남기기/취소 ----------
 function popupHtml(s) {
+  const rec = findLog(s.id);
+  const act = rec
+    ? '<div class="pop-done">\u{2705} 혼밥 완료 (' +
+      shortDate(rec.date) + ') · <button class="pop-link" ' +
+      'data-id="' + esc(s.id) + '" onclick="cancelStore(this)">' +
+      '기록 취소</button></div>'
+    : '<button class="pop-btn" data-id="' + esc(s.id) + '" ' +
+      'onclick="doneStore(this)">' + LEVELS[s.lv].emoji +
+      ' 여기서 혼밥했어요</button>';
   return '<div class="pop"><b>' + esc(s.name) + '</b><br>' +
     lvBadge(s.lv) + ' ' + esc(LEVELS[s.lv].label) +
     ' · ' + esc(s.scls) + '<br>' +
     '<span class="sub">' + esc(s.addr) + ' · ' +
-    fmtDist(s.dist) + '</span><br>' +
+    fmtDist(s.dist) + '</span>' + act +
     '<a href="' + kakaoLink(s) + '" target="_blank" rel="noopener">' +
     '카카오맵에서 보기 \u{203A}</a></div>';
 }
 
+async function doneStore(btn) {
+  const s = byId[btn.dataset.id];
+  if (!s) return;
+  if (!confirm(s.name + '에서 혼밥하고 오셨나요?')) return;
+  btn.disabled = true;
+  btn.textContent = '기록하는 중…';
+  const res = await addLog(s);
+  afterLogChange(s);
+  if (res && res.levelUp) {
+    toast(LEVELS[s.lv].emoji + ' ' + lvTitle(s.lv) + ' 달성!');
+  } else {
+    toast('혼밥 기록을 남겼어요');
+  }
+}
+
+function cancelStore(btn) {
+  const s = byId[btn.dataset.id];
+  if (!s) return;
+  if (!confirm(s.name + ' 기록을 취소할까요?')) return;
+  removeLog(s.id);
+  afterLogChange(s);
+  toast('기록을 취소했어요');
+}
+
+function afterLogChange(s) {
+  renderSummary();
+  renderChips();
+  if (s.m) s.m.setPopupContent(() => popupHtml(s));
+  const item = $('list').querySelector('.item-name');
+  if (item) renderListOnly();
+}
+
+// ---------- 지도 마커 + 목록 ----------
 function renderStores() {
   markerLayer.clearLayers();
   selected = null;
@@ -297,10 +347,15 @@ function renderStores() {
       iconAnchor: [12, 12]
     });
     s.m = L.marker([s.lat, s.lng], { icon: icon })
-      .bindPopup(popupHtml(s))
+      .bindPopup(() => popupHtml(s))
       .addTo(markerLayer);
   });
 
+  renderListOnly();
+}
+
+function renderListOnly() {
+  const list = filtered();
   let title = fLv === -1 ? '갈 수 있는 곳'
     : fLv ? 'Lv.' + fLv + ' ' + LEVELS[fLv].label : '전체';
   if (fCat) title += ' · ' + fCat;
@@ -444,7 +499,7 @@ const P = new URLSearchParams(location.search);
 const last = store.get('lastLoc', null);
 if (P.get('lat') && P.get('lng')) {
   load(Number(P.get('lat')), Number(P.get('lng')),
-    P.get('label') || '선택한 위치', P.get('focus'));
+    P.get('label') || '선택한 위치', P.get('store'));
 } else if (last) {
   load(last.lat, last.lng, last.label);
 } else {
