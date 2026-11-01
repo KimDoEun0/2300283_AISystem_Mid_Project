@@ -112,36 +112,89 @@ const store = {
   }
 };
 
-// ---------- 나의 레벨 판정 ----------
-// tried[1]~tried[9]: true = 해 봄, false = 아직
-function getTried() {
-  return store.get('tried', null);
+// 예전 형식 데이터 정리
+store.del('tried');
+store.del('records');
+(function () {
+  const t = store.get('target', null);
+  if (t && !t.id) store.del('target');
+})();
+
+// ---------- 테스트 답변 / 도전 기록 ----------
+// answers[1]~[9]: 테스트에서 "있어요"면 true (테스트 전이면 null)
+function getAnswers() {
+  return store.get('answers', null);
 }
 function hasTested() {
-  return Array.isArray(getTried());
+  return Array.isArray(getAnswers());
+}
+// log: [{id, name, lv, scls, lat, lng, code, dong, date}]
+function getLog() {
+  return store.get('log', []);
+}
+function hasAny() {
+  return hasTested() || getLog().length > 0;
+}
+function findLog(id) {
+  return getLog().find(r => r.id === id) || null;
+}
+
+// ---------- 나의 레벨 판정 (매번 계산) ----------
+// 해 본 레벨 = 테스트 "있어요" 또는 그 레벨 기록 1개 이상
+function getTried() {
+  const a = getAnswers() || [];
+  const t = new Array(10).fill(false);
+  for (let lv = 1; lv <= 9; lv++) {
+    if (a[lv]) t[lv] = true;
+  }
+  getLog().forEach(r => { t[r.lv] = true; });
+  return t;
 }
 function triedCount() {
-  const t = getTried() || [];
+  const t = getTried();
   let n = 0;
   for (let lv = 1; lv <= 9; lv++) if (t[lv]) n++;
   return n;
 }
 // 해 본 레벨 중 가장 높은 레벨
 function myLevel() {
-  const t = getTried() || [];
+  const t = getTried();
   for (let lv = 9; lv >= 1; lv--) if (t[lv]) return lv;
   return 0;
 }
 // 아직인 레벨 중 가장 낮은 레벨 (0 = 다음 도전 없음)
 function nextLevel() {
-  const t = getTried() || [];
+  const t = getTried();
   for (let lv = 1; lv <= 9; lv++) if (!t[lv]) return lv;
   return 0;
 }
-function markTried(lv) {
-  const t = getTried() || new Array(10).fill(false);
-  t[lv] = true;
-  store.set('tried', t);
+
+// ---------- 기록 추가 / 취소 ----------
+async function addLog(s) {
+  if (findLog(s.id)) return null;
+  const isNew = !getTried()[s.lv];
+  let reg = null;
+  try {
+    reg = await api({ action: 'region', lat: s.lat, lng: s.lng });
+  } catch (e) {
+    // 동네 이름을 못 가져와도 기록은 남김
+  }
+  if (findLog(s.id)) return null;
+  const log = getLog();
+  log.unshift({
+    id: s.id, name: s.name, lv: s.lv, scls: s.scls,
+    lat: s.lat, lng: s.lng,
+    code: reg ? reg.code : '',
+    dong: reg ? reg.sigungu + ' ' + reg.dong : '',
+    date: new Date().toISOString()
+  });
+  store.set('log', log);
+  const t = store.get('target', null);
+  if (t && t.id === s.id) store.del('target');
+  return { levelUp: isNew };
+}
+function removeLog(id) {
+  store.set('log', getLog().filter(r => r.id !== id));
 }
 
 // ---------- 서버 호출 ----------
@@ -161,6 +214,7 @@ async function loadStores(lat, lng) {
     const lv = levelOf(r[1]);
     if (!lv) return;
     list.push({
+      id: r[5] || (r[0] + '@' + r[2] + ',' + r[3]),
       name: r[0], scls: r[1], lat: r[2], lng: r[3],
       addr: r[4], lv: lv,
       dist: distM(lat, lng, r[2], r[3])
@@ -170,7 +224,14 @@ async function loadStores(lat, lng) {
   return { stdrYm: d.stdrYm, list: list };
 }
 
-// ---------- 거리 ----------
+// 식당 좌표를 중심으로 지도 열기
+function storeUrl(s) {
+  return 'index.html?' + new URLSearchParams({
+    store: s.id, lat: s.lat, lng: s.lng, label: s.name
+  });
+}
+
+// ---------- 거리·날짜 ----------
 function distM(lat1, lng1, lat2, lng2) {
   const R = 6371000;
   const rad = x => x * Math.PI / 180;
@@ -190,6 +251,10 @@ function fmtYm(ym) {
   if (ym.length !== 6) return '최신';
   return ym.slice(0, 4) + '.' + ym.slice(4);
 }
+function shortDate(iso) {
+  const d = new Date(iso);
+  return (d.getMonth() + 1) + '/' + d.getDate();
+}
 
 // ---------- 화면 조각 ----------
 function esc(s) {
@@ -207,10 +272,11 @@ function lvTitle(lv) {
   return 'Lv.' + lv + ' ' + LEVELS[lv].name;
 }
 function storeItemHtml(s, i) {
+  const done = findLog(s.id) ? ' \u{2705}' : '';
   return '<li class="item" data-i="' + i + '">' +
     '<div class="emo">' + LEVELS[s.lv].emoji + '</div>' +
     '<div class="item-main">' +
-    '<div class="item-name">' + esc(s.name) + '</div>' +
+    '<div class="item-name">' + esc(s.name) + done + '</div>' +
     '<div class="sub">' + lvBadge(s.lv) + ' ' +
     esc(LEVELS[s.lv].label) + ' · ' + esc(s.scls) + '</div>' +
     '</div>' +
