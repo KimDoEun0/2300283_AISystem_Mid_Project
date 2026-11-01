@@ -1,86 +1,123 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>혼밥 레벨 테스트 - 혼밥 레벨 지도</title>
-  <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>혼밥 레벨 테스트</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header id="top"></header>
-  <main>
-    <section class="card">
-      <h2>🧪 혼밥 레벨 테스트</h2>
-      <p class="hint">혼자 가 본 곳에 "있다"를 눌러 주세요. 가장 높은 단계가 지금 내 레벨이에요.</p>
-      <div id="box"></div>
-    </section>
-  </main>
-  <footer>데이터: 소상공인시장진흥공단 상가(상권)정보 API (공공데이터포털)</footer>
+<main class="wrap">
+  <section class="card" id="box"></section>
+  <section class="card" id="table" hidden></section>
+</main>
 
-  <script src="common.js"></script>
-  <script>
-    renderHeader('test.html');
-    const box = document.getElementById('box');
-    const answers = [];
-    showQ(1);
+<script src="common.js"></script>
+<script>
+renderNav('test.html');
 
-    function showQ(i) {
-      const info = LEVELS[i];
-      box.innerHTML = `
-        <div class="progress"><i style="width:${(i - 1) / 9 * 100}%"></i></div>
-        <div class="question">
-          <div class="hint">${i} / 9</div>
-          <div class="ic">${info.icon}</div>
-          <p>혼자 ${info.q}</p>
-          <div class="answer">
-            <button class="btn green" id="yes">⭕ 있다</button>
-            <button class="btn gray" id="no">❌ 없다</button>
-          </div>
-        </div>`;
-      document.getElementById('yes').onclick = () => answer(i, true);
-      document.getElementById('no').onclick = () => answer(i, false);
-    }
+let idx = 0;
+let ans = new Array(10).fill(false);
 
-    function answer(i, yes) {
-      answers[i] = yes;
-      if (i < 9) showQ(i + 1);
-      else finish();
-    }
+// ---------- 문항 화면 ----------
+function showQ() {
+  $('table').hidden = true;
+  const lv = idx + 1;
+  const info = LEVELS[lv];
+  const back = idx > 0
+    ? '<button class="q-back" id="back">\u{2039} 이전</button>'
+    : '';
+  $('box').innerHTML =
+    '<div class="q-top">' + back +
+    '<span class="q-count">' + lv + ' / 9</span></div>' +
+    '<div class="bar"><i style="width:' + (lv / 9 * 100) + '%"></i></div>' +
+    '<div class="q-body">' +
+    '<div class="emo emo-big">' + info.emoji + '</div>' +
+    '<p class="q-label">Lv.' + lv + ' ' + info.label + '</p>' +
+    '<p class="q-text">' + info.q + '</p></div>' +
+    '<button class="btn btn-primary" id="yes">있어요</button>' +
+    '<button class="btn btn-gray" id="no">없어요</button>';
+  $('yes').onclick = () => answer(true);
+  $('no').onclick = () => answer(false);
+  if ($('back')) {
+    $('back').onclick = () => {
+      idx--;
+      showQ();
+    };
+  }
+}
 
-    async function finish() {
-      // "있다"라고 답한 가장 높은 단계 = 내 레벨
-      let lv = 0;
-      for (let i = 1; i <= 9; i++) if (answers[i]) lv = i;
-      store.set('testLevel', lv);
-      loading(box, '결과를 계산하는 중… 🍚');
+// 9문항 모두 진행 (조기 종료 없음)
+function answer(v) {
+  ans[idx + 1] = v;
+  idx++;
+  if (idx < 9) {
+    showQ();
+  } else {
+    store.set('tried', ans);
+    store.del('target');
+    showResult();
+  }
+}
 
-      // 결과를 스프레드시트에 저장하고, 전체 참여자 중 내 위치 계산
-      let rank = '';
-      try {
-        const s = await api({ action: 'test', level: lv });
-        const ge = s.counts.slice(lv).reduce((a, b) => a + b, 0);
-        rank = `참여자 ${s.total}명 중 <b>상위 ${Math.max(1, Math.round(ge / s.total * 100))}%</b>예요!`;
-      } catch (e) {}
+// ---------- 결과 화면 ----------
+function showResult() {
+  const lv = myLevel();
+  const nx = nextLevel();
+  const t = getTried();
 
-      const next = Math.min(9, lv + 1);
-      box.innerHTML = `
-        <div class="result">
-          <div class="ic">${lv ? LEVELS[lv].icon : '🌱'}</div>
-          <div class="hint">당신의 혼밥 레벨은</div>
-          <div class="lvbig">Lv.${lv}</div>
-          <h2>${titleOf(lv)}</h2>
-          <p>${lv ? `혼자 <b>${LEVELS[lv].name}</b>까지 가 봤군요!` : '아직 혼밥 경험이 없군요. 오늘이 첫걸음!'}<br>${rank}</p>
-          ${lv < 9 ? `
-            <p>다음 도전: ${levelBadge(next)}</p>
-            <div class="row center">
-              <a class="btn" href="map.html?lv=${next}">🗺️ 내 주변에서 Lv.${next} 도전하기</a>
-              <a class="btn ghost" href="my.html">📒 혼밥 일지</a>
-            </div>` : `
-            <p>🎉 이미 혼밥 최고 레벨이에요!</p>
-            <a class="btn" href="my.html">🎓 자격증 받으러 가기</a>`}
-          <p><a href="test.html">↻ 다시 하기</a></p>
-        </div>`;
-    }
-  </script>
+  let next;
+  if (lv === 0) {
+    next = '첫 도전은 <b>' + LEVELS[1].emoji + ' ' + lvTitle(1) +
+      '</b>부터 시작해요';
+  } else if (nx) {
+    next = '<p class="sub">다음 도전</p><b>' + LEVELS[nx].emoji + ' ' +
+      lvTitle(nx) + '</b><p class="sub">' + LEVELS[nx].label +
+      '에서 혼밥해 보세요</p>';
+  } else {
+    next = '모든 레벨을 해 봤어요! 진정한 혼밥 마스터 \u{1F451}';
+  }
+
+  $('box').innerHTML =
+    '<div class="q-body" style="padding-bottom:8px">' +
+    '<div class="emo emo-big">' + LEVELS[lv].emoji + '</div>' +
+    '<p class="q-label">내 혼밥 레벨은</p>' +
+    '<p class="big">' + lvTitle(lv) + '</p></div>' +
+    '<div class="gray-box" style="text-align:center">' + next + '</div>' +
+    '<a class="btn btn-primary" href="index.html">' +
+    '내 주변에서 도전할 곳 찾기</a>' +
+    '<button class="btn btn-gray" id="again">다시 하기</button>';
+  $('again').onclick = restart;
+
+  let rows = '';
+  for (let i = 1; i <= 9; i++) {
+    rows +=
+      '<li class="item static"><div class="emo">' + LEVELS[i].emoji +
+      '</div><div class="item-main"><div class="item-name">' +
+      lvTitle(i) + '</div><div class="sub">' + LEVELS[i].label +
+      '</div></div><div class="item-dist">' +
+      (t[i] ? '\u{2705}' : '') + '</div></li>';
+  }
+  $('table').innerHTML =
+    '<div class="card-title">혼밥 레벨 기준표</div>' +
+    '<ul class="list">' + rows + '</ul>';
+  $('table').hidden = false;
+}
+
+function restart() {
+  idx = 0;
+  ans = new Array(10).fill(false);
+  showQ();
+  window.scrollTo(0, 0);
+}
+
+// ---------- 시작 ----------
+if (hasTested()) showResult();
+else showQ();
+</script>
 </body>
 </html>
