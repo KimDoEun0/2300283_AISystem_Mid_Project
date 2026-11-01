@@ -59,7 +59,7 @@ const centerLayer = L.layerGroup().addTo(map);
 
 let center = null;
 let all = null; // null = 아직 안 불러옴
-let fLv = 0;
+let fLv = 0;    // 0 = 전체, 1~9 = 그 레벨, -1 = 갈 수 있는 곳
 let fCat = '';
 let shown = 50;
 let token = 0;
@@ -176,7 +176,7 @@ function renderSummary() {
     '<p class="sub" style="margin-top:6px">해 본 레벨 ' + n + ' / 9</p>' +
     '<div class="stats">';
   if (n > 0) {
-    h += stat('갈 수 있는 곳', cnt(s => t[s.lv]));
+    h += stat('갈 수 있는 곳', cnt(s => t[s.lv]), 'canStat');
   }
   if (nx) {
     const word = n === 0 ? '첫 도전' : '다음 도전';
@@ -201,6 +201,7 @@ function renderSummary() {
   box.innerHTML = h;
 
   if ($('nextStat') && all) $('nextStat').onclick = () => setLv(nx);
+  if ($('canStat') && all) $('canStat').onclick = () => setLv(-1);
   if ($('near')) $('near').onclick = () => focusStore(near);
 }
 
@@ -210,12 +211,26 @@ function chip(text, on, attr) {
     esc(text) + '</button>';
 }
 
+// 레벨 조건: 0 = 전체, 1~9 = 그 레벨, -1 = 갈 수 있는 곳(해 본 레벨)
+function matchLv(s) {
+  if (fLv === -1) return !!(getTried() || [])[s.lv];
+  return !fLv || s.lv === fLv;
+}
+
+function filtered() {
+  return all.filter(s =>
+    matchLv(s) && (!fCat || s.scls === fCat));
+}
+
 function renderChips() {
   $('chipBox').hidden = false;
   const lvCount = new Array(10).fill(0);
   all.forEach(s => { lvCount[s.lv]++; });
 
   let h = chip('전체 ' + all.length, !fLv, 'data-lv="0"');
+  if (triedCount() > 0) {
+    h += chip('\u{2705} 갈 수 있는 곳', fLv === -1, 'data-lv="-1"');
+  }
   for (let lv = 1; lv <= 9; lv++) {
     const info = LEVELS[lv];
     h += chip(info.emoji + ' Lv.' + lv + ' ' + info.label +
@@ -224,7 +239,7 @@ function renderChips() {
   $('lvChips').innerHTML = h;
 
   const cats = {};
-  all.filter(s => !fLv || s.lv === fLv).forEach(s => {
+  all.filter(matchLv).forEach(s => {
     cats[s.scls] = (cats[s.scls] || 0) + 1;
   });
   const keys = Object.keys(cats).sort((a, b) => cats[b] - cats[a]);
@@ -257,11 +272,6 @@ $('catChips').onclick = e => {
   renderStores();
 };
 
-function filtered() {
-  return all.filter(s =>
-    (!fLv || s.lv === fLv) && (!fCat || s.scls === fCat));
-}
-
 // ---------- 지도 마커 + 목록 ----------
 function popupHtml(s) {
   return '<div class="pop"><b>' + esc(s.name) + '</b><br>' +
@@ -291,7 +301,8 @@ function renderStores() {
       .addTo(markerLayer);
   });
 
-  let title = fLv ? 'Lv.' + fLv + ' ' + LEVELS[fLv].label : '전체';
+  let title = fLv === -1 ? '갈 수 있는 곳'
+    : fLv ? 'Lv.' + fLv + ' ' + LEVELS[fLv].label : '전체';
   if (fCat) title += ' · ' + fCat;
   $('listTitle').innerHTML = esc(title) +
     ' <span class="num">' + list.length + '곳</span>';
