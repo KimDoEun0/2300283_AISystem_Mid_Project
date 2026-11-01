@@ -394,3 +394,21 @@ input { font: inherit; letter-spacing: inherit; }
   .dot { width: 27px; height: 27px; font-size: 13px; }
   .nav a { padding: 8px 14px; }
 }
+/* ---------- 추가: 테스트·기록 ---------- */
+.item.static { cursor: default; }
+.item.static:hover { background: none; }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.next-line {
+  font-size: 15px;
+  font-weight: 500;
+  word-break: keep-all;
+  margin-bottom: 12px;
+}
+.next-line a { color: var(--primary); }
+.town-chips { flex-wrap: wrap; }
+.town-chips .chip {
+  display: inline-flex;
+  align-items: center;
+}
+.reset { text-align: center; margin-top: 8px; }
+.reset button { font-size: 13px; color: var(--text-3); padding: 8px; }
