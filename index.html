@@ -62,6 +62,7 @@ let all = null;  // null = 아직 안 불러옴
 let byId = {};   // 업소번호 → 식당
 let fLv = 0;     // 0 = 전체, 1~9 = 그 레벨, -1 = 갈 수 있는 곳
 let fCat = '';
+let catOpen = false; // 업종 칩 펼침 여부
 let shown = 50;
 let token = 0;
 let selected = null;
@@ -92,6 +93,7 @@ async function load(lat, lng, label, focusId) {
   $('here').textContent = '\u{1F4CD} ' + label + ' 주변 500m';
   all = null;
   byId = {};
+  catOpen = false;
   fLv = 0;
   fCat = '';
   shown = 50;
@@ -251,11 +253,20 @@ function renderChips() {
     cats[s.scls] = (cats[s.scls] || 0) + 1;
   });
   const keys = Object.keys(cats).sort((a, b) => cats[b] - cats[a]);
+  const LIMIT = 7;
+  let view = catOpen ? keys : keys.slice(0, LIMIT);
+  if (fCat && view.indexOf(fCat) < 0) view = view.concat(fCat);
   let c = chip('모든 업종', !fCat, 'data-cat=""');
-  keys.forEach(k => {
+  view.forEach(k => {
     c += chip(k + ' ' + cats[k], fCat === k,
       'data-cat="' + esc(k) + '"');
   });
+  if (keys.length > LIMIT) {
+    c += catOpen
+      ? '<button class="chip more" data-more="0">접기</button>'
+      : '<button class="chip more" data-more="1">+ ' +
+        (keys.length - LIMIT) + '개 더 보기</button>';
+  }
   $('catChips').innerHTML = c;
 }
 
@@ -272,6 +283,12 @@ $('lvChips').onclick = e => {
   if (b) setLv(Number(b.dataset.lv));
 };
 $('catChips').onclick = e => {
+  const m = e.target.closest('[data-more]');
+  if (m) {
+    catOpen = m.dataset.more === '1';
+    renderChips();
+    return;
+  }
   const b = e.target.closest('[data-cat]');
   if (!b) return;
   fCat = b.dataset.cat;
