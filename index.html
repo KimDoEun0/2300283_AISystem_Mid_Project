@@ -140,6 +140,11 @@ function myLoc() {
   );
 }
 function noLoc() {
+  if (center) {
+    const h=center.label+' 주변 500m';
+    $('here').textContent='\u{1F4CD} '+h;
+    return;
+  }
   $('here').textContent = '지도를 눌러 위치를 정해 주세요';
   if (!center) {
     $('list').innerHTML = msgHtml(
@@ -303,7 +308,7 @@ function popupHtml(s) {
   const act = rec
     ? '<div class="pop-done">\u{2705} 혼밥 완료 (' +
       shortDate(rec.date) + ') · <button class="pop-link" ' +
-      'data-id="' + esc(s.id) + '" onclick="cancelStore(this)">' +
+      'data-id="' + esc(s.id) + '" onclick="event.stopPropagation(); cancelStore(this)">' +
       '기록 취소</button></div>'
     : '<button class="pop-btn" data-id="' + esc(s.id) + '" ' +
       'onclick="doneStore(this)">' + LEVELS[s.lv].emoji +
